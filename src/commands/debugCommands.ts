@@ -1,10 +1,15 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { exec as execCb } from 'child_process';
 import { promisify } from 'util';
 import type { RuntimeProcess } from '../runtime/runtimeProcess';
-import { resolvePaths, port as cfgPort, bindAddress as cfgBind } from '../util/paths';
+import {
+  resolvePaths,
+  requireRuntimeExecutable,
+  port as cfgPort,
+  bindAddress as cfgBind,
+} from '../util/paths';
 
 const exec = promisify(execCb);
 
@@ -40,20 +45,26 @@ async function debugRuntime(): Promise<void> {
 
   const cfg = vscode.workspace.getConfiguration('loom');
   const adapter = cfg.get<string>('debugAdapter', 'lldb');
-  const { runtimeExecutable, moduleDir, dataDir, repoPath } = resolvePaths();
 
-  if (!fs.existsSync(runtimeExecutable)) {
+  const runtimeExecutable = await requireRuntimeExecutable();
+  if (!runtimeExecutable) return;
+
+  const { moduleDir, dataDir, repoPath } = resolvePaths();
+  if (!moduleDir) {
     vscode.window.showErrorMessage(
-      `Loom runtime not found at ${runtimeExecutable}. Build it first or set 'loom.runtimeExecutable'.`,
+      'No module directory configured. Set loom.moduleDir or run "Loom: Install Loom Runtime".',
     );
     return;
   }
 
   if (!(await ensureAdapter(adapter))) return;
 
+  const effectiveDataDir = dataDir || `${os.homedir()}/.loom/data`;
+  const cwd = repoPath || os.homedir();
+
   const args = [
     '--module-dir', moduleDir,
-    '--data-dir',   dataDir,
+    '--data-dir',   effectiveDataDir,
     '--port',       String(cfgPort()),
     '--bind',       cfgBind(),
   ];
@@ -65,7 +76,7 @@ async function debugRuntime(): Promise<void> {
         name: 'Loom Runtime',
         program: runtimeExecutable,
         args,
-        cwd: repoPath,
+        cwd,
       }
     : {
         type: 'cppdbg',
@@ -73,7 +84,7 @@ async function debugRuntime(): Promise<void> {
         name: 'Loom Runtime',
         program: runtimeExecutable,
         args,
-        cwd: repoPath,
+        cwd,
         MIMode: process.platform === 'darwin' ? 'lldb' : 'gdb',
       };
 
@@ -96,7 +107,14 @@ async function attachRuntime(runtime: RuntimeProcess): Promise<void> {
   const adapter = cfg.get<string>('debugAdapter', 'lldb');
   if (!(await ensureAdapter(adapter))) return;
 
+  // lldb can attach by pid alone. cppdbg requires `program` for symbols.
   const { runtimeExecutable } = resolvePaths();
+  if (adapter === 'cppdbg' && !runtimeExecutable) {
+    vscode.window.showErrorMessage(
+      'cppdbg attach needs loom.runtimeExecutable set so it can load symbols. Run "Loom: Install Loom Runtime" or set the path manually.',
+    );
+    return;
+  }
 
   // Prefer our own spawned PID; fall back to scanning `ps`.
   let pid: number | undefined = runtime.pid;
@@ -155,9 +173,14 @@ async function listLoomProcesses(runtimeExecutable: string): Promise<ProcInfo[]>
     // tasklist enumeration is doable but rare for our setup; skip for now.
     return [];
   }
+  // When loom.runtimeExecutable isn't configured (typical for "I just want
+  // to attach to a remote-ish loom" workflows), fall back to matching the
+  // canonical binary name so we still find running processes.
+  const wantedBase = runtimeExecutable
+    ? path.basename(runtimeExecutable)
+    : 'loom';
   try {
     const { stdout } = await exec('ps -A -o pid=,command=');
-    const wantedBase = path.basename(runtimeExecutable);
     return stdout.split('\n')
       .map((line): ProcInfo | null => {
         const m = line.trim().match(/^(\d+)\s+(.+)$/);
@@ -167,9 +190,7 @@ async function listLoomProcesses(runtimeExecutable: string): Promise<ProcInfo[]>
       .filter((p): p is ProcInfo => {
         if (!p) return false;
         const argv0 = p.command.split(/\s+/)[0];
-        // Match by full path OR by basename so a `loom` started under any
-        // path is found. Skip our own ps invocation.
-        if (argv0 === runtimeExecutable) return true;
+        if (runtimeExecutable && argv0 === runtimeExecutable) return true;
         if (path.basename(argv0) === wantedBase) return true;
         return false;
       });

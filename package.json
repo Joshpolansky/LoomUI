@@ -83,6 +83,11 @@
         "title": "Loom: Connect to Runtime..."
       },
       {
+        "command": "loom.runtime.install",
+        "title": "Loom: Install Loom Runtime...",
+        "icon": "$(cloud-download)"
+      },
+      {
         "command": "loom.modules.refresh",
         "title": "Loom: Refresh Modules",
         "icon": "$(refresh)"
@@ -395,23 +400,33 @@
         },
         "loom.repoPath": {
           "type": "string",
-          "default": "${workspaceFolder}/../Loom",
-          "description": "Path to the Loom source repository. Used to derive default runtime, module, and data paths. Supports ${workspaceFolder}."
+          "default": "",
+          "description": "Optional: path to a local Loom source checkout. When set, the runtime/module/data paths default to ${loom.repoPath}/output/loom, ${loom.repoPath}/output/modules, and ${loom.repoPath}/data respectively. Supports ${workspaceFolder}."
         },
         "loom.runtimeExecutable": {
           "type": "string",
           "default": "",
-          "description": "Path to the loom binary. If empty, defaults to ${loom.repoPath}/output/loom. Supports ${workspaceFolder}."
+          "description": "Path to the loom binary. Set this directly, run \"Loom: Install Loom Runtime\" to download a release, or set loom.repoPath to derive from a source checkout. Supports ${workspaceFolder}."
         },
         "loom.moduleDir": {
           "type": "string",
           "default": "",
-          "description": "Module .so/.dylib directory. If empty, defaults to ${loom.repoPath}/output/modules."
+          "description": "Module .so / .dylib directory. Falls back to ${loom.repoPath}/output/modules if loom.repoPath is set."
         },
         "loom.dataDir": {
           "type": "string",
           "default": "",
-          "description": "Config/recipe persistence directory. If empty, defaults to ${loom.repoPath}/data."
+          "description": "Config/recipe persistence directory. Falls back to ${loom.repoPath}/data when loom.repoPath is set, otherwise to ~/.loom/data."
+        },
+        "loom.releaseRepo": {
+          "type": "string",
+          "default": "Joshpolansky/Loom",
+          "description": "GitHub repo (form 'owner/name') hosting Loom binary releases. Used by the 'Loom: Install Loom Runtime' command."
+        },
+        "loom.releaseAssetTemplate": {
+          "type": "string",
+          "default": "loom-{platform}-{arch}.tar.gz",
+          "description": "Asset name template for the install command. {platform} expands to darwin/linux/win32 and {arch} to arm64/x64."
         },
         "loom.port": {
           "type": "number",

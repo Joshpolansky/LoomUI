@@ -35,28 +35,47 @@ npm run typecheck  # tsc --noEmit
 
 To try the extension, open `LoomUI/` in VSCode and press **F5** — a new Extension Development Host window opens with the Loom icon in the activity bar.
 
-## Default paths
+## Three ways to use it
 
-With `LoomUI/` opened as the workspace, paths resolve relative to a sibling `Loom/`:
+The extension always works as a **REST/WebSocket client** — `loom.serverUrl` (default `http://localhost:8080`) is the only thing it strictly needs. Beyond that, it can also start, stop, and debug a local loom binary; what's required for those depends on how you got the binary.
 
-| Setting | Default | Resolves to |
-| --- | --- | --- |
-| `loom.repoPath` | `${workspaceFolder}/../Loom` | `…/loom/Loom` |
-| `loom.runtimeExecutable` | *(empty)* → `${repoPath}/output/loom` | `…/Loom/output/loom` |
-| `loom.moduleDir` | *(empty)* → `${repoPath}/output/modules` | `…/Loom/output/modules` |
-| `loom.dataDir` | *(empty)* → `${repoPath}/data` | `…/Loom/data` |
+### 1. Connect to a running runtime (the simple case)
 
-Override any setting in your User or Workspace settings to point elsewhere — explicit paths win.
+You have loom running somewhere (locally, on a dev machine, on a real PLC). You only want to inspect modules, watch values, edit recipes, and call services.
+
+- Set `loom.serverUrl` if the runtime isn't on `http://localhost:8080`.
+- That's it. The Modules / Scheduler / Bus / Mappings views, the `Loom: Inspect Modules` debug session, and the right-click `Set Value…` flow all work.
+- Start / Stop / Debug / Attach commands will prompt to install or configure a binary if you try to use them.
+
+### 2. Install a Loom binary release (recommended)
+
+Run **`Loom: Install Loom Runtime…`**. The extension downloads the latest release from `loom.releaseRepo` (default [Joshpolansky/Loom](https://github.com/Joshpolansky/Loom)), extracts it under `${context.globalStorageUri}/runtimes/<tag>/`, and updates `loom.runtimeExecutable` and `loom.moduleDir` automatically. `loom.dataDir` defaults to `~/.loom/data` so reinstalling never touches your recipes/configs.
+
+After the install:
+- `Loom: Start Runtime` works.
+- `Loom: Debug Runtime (Native)` and `Loom: Attach Native Debugger` work (native debugger extension required — see Requirements).
+- The status bar Loom button is live.
+
+You can re-run install at any point to upgrade.
+
+### 3. Build from source (module developers)
+
+You have the [Loom](https://github.com/Joshpolansky/Loom) source checked out and built locally.
+
+- Set `loom.repoPath` to your checkout. The extension then derives `loom.runtimeExecutable` (`${repoPath}/output/loom`), `loom.moduleDir` (`${repoPath}/output/modules`), and `loom.dataDir` (`${repoPath}/data`) automatically.
+- Or override any of those individually for non-standard layouts.
 
 ## Settings
 
 | Key | Default | Purpose |
 | --- | --- | --- |
 | `loom.serverUrl` | `http://localhost:8080` | REST/WebSocket endpoint of the running runtime. |
-| `loom.repoPath` | `${workspaceFolder}/../Loom` | Used to derive the three paths below when they're empty. |
-| `loom.runtimeExecutable` | *(empty)* | Absolute path to the `loom` binary. |
-| `loom.moduleDir` | *(empty)* | `.so`/`.dylib` plugin directory. |
-| `loom.dataDir` | *(empty)* | Config/recipe persistence directory. |
+| `loom.repoPath` | *(empty)* | Optional: path to a local Loom source checkout. When set, the runtime / module / data paths default off it. |
+| `loom.runtimeExecutable` | *(empty)* | Path to the `loom` binary. Set directly, or run `Loom: Install Loom Runtime…`, or set `loom.repoPath`. |
+| `loom.moduleDir` | *(empty)* | `.so`/`.dylib` plugin directory. Falls back to `${loom.repoPath}/output/modules`. |
+| `loom.dataDir` | *(empty)* | Config/recipe persistence. Falls back to `${loom.repoPath}/data` or `~/.loom/data`. |
+| `loom.releaseRepo` | `Joshpolansky/Loom` | GitHub repo (`owner/name`) hosting Loom binary releases — used by the install command. |
+| `loom.releaseAssetTemplate` | `loom-{platform}-{arch}.tar.gz` | Release asset name template; `{platform}` is `darwin`/`linux`/`win32`, `{arch}` is `arm64`/`x64`. |
 | `loom.port` | `8080` | Port the runtime binds to when started by the extension. |
 | `loom.bindAddress` | `0.0.0.0` | Address the runtime binds to. |
 | `loom.debugAdapter` | `lldb` | `lldb` (CodeLLDB) or `cppdbg` (Microsoft C/C++). |
@@ -67,10 +86,12 @@ Override any setting in your User or Workspace settings to point elsewhere — e
 All commands are available from the palette under the `Loom:` prefix.
 
 **Runtime**
+- `Loom: Install Loom Runtime…` — download the latest release from `loom.releaseRepo` and configure paths
 - `Loom: Start Runtime`
 - `Loom: Stop Runtime`
 - `Loom: Restart Runtime`
 - `Loom: Debug Runtime (Native)` — launch under lldb/cppdbg
+- `Loom: Attach Native Debugger` — attach lldb/cppdbg to a running loom process
 - `Loom: Connect to Runtime…` — change `serverUrl`
 
 **Modules**

@@ -1,7 +1,12 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
+import * as os from 'os';
 import { spawn, ChildProcess } from 'child_process';
-import { resolvePaths, port as cfgPort, bindAddress as cfgBind } from '../util/paths';
+import {
+  resolvePaths,
+  requireRuntimeExecutable,
+  port as cfgPort,
+  bindAddress as cfgBind,
+} from '../util/paths';
 import { getRuntimeOutput } from '../util/output';
 
 export class RuntimeProcess implements vscode.Disposable {
@@ -24,28 +29,34 @@ export class RuntimeProcess implements vscode.Disposable {
       vscode.window.showInformationMessage('Loom runtime is already running.');
       return;
     }
-    const { runtimeExecutable, moduleDir, dataDir, repoPath } = resolvePaths();
+    const runtimeExecutable = await requireRuntimeExecutable();
+    if (!runtimeExecutable) return;
 
-    if (!fs.existsSync(runtimeExecutable)) {
-      const msg = `Loom runtime not found at ${runtimeExecutable}. Build it (just build) or set 'loom.runtimeExecutable'.`;
-      vscode.window.showErrorMessage(msg);
+    const { moduleDir, dataDir, repoPath } = resolvePaths();
+    if (!moduleDir) {
+      vscode.window.showErrorMessage(
+        'No module directory configured. Set loom.moduleDir or run "Loom: Install Loom Runtime".',
+      );
       return;
     }
 
+    const effectiveDataDir = dataDir || `${os.homedir()}/.loom/data`;
+    const cwd = repoPath || os.homedir();
+
     const args = [
       '--module-dir', moduleDir,
-      '--data-dir',   dataDir,
+      '--data-dir',   effectiveDataDir,
       '--port',       String(cfgPort()),
       '--bind',       cfgBind(),
     ];
 
     const out = getRuntimeOutput();
     out.appendLine(`▶ ${runtimeExecutable} ${args.join(' ')}`);
-    out.appendLine(`  cwd: ${repoPath}`);
+    out.appendLine(`  cwd: ${cwd}`);
     out.show(true);
 
     const child = spawn(runtimeExecutable, args, {
-      cwd: repoPath,
+      cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     this.child = child;
