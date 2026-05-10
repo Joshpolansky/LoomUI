@@ -36,6 +36,10 @@
         {
           "id": "loom.bus",
           "name": "Bus"
+        },
+        {
+          "id": "loom.mappings",
+          "name": "I/O Mappings"
         }
       ]
     },
@@ -156,6 +160,30 @@
       {
         "command": "loom.scheduler.reassign",
         "title": "Loom: Reassign Module to Class..."
+      },
+      {
+        "command": "loom.mappings.refresh",
+        "title": "Loom: Refresh I/O Mappings",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "loom.mappings.add",
+        "title": "Loom: Add I/O Mapping...",
+        "icon": "$(add)"
+      },
+      {
+        "command": "loom.mappings.resolve",
+        "title": "Loom: Resolve I/O Mappings",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "loom.mappings.toggle",
+        "title": "Loom: Toggle I/O Mapping"
+      },
+      {
+        "command": "loom.mappings.delete",
+        "title": "Loom: Delete I/O Mapping",
+        "icon": "$(trash)"
       }
     ],
     "menus": {
@@ -198,6 +226,21 @@
         {
           "command": "loom.scheduler.refresh",
           "when": "view == loom.scheduler",
+          "group": "navigation@9"
+        },
+        {
+          "command": "loom.mappings.add",
+          "when": "view == loom.mappings",
+          "group": "navigation@1"
+        },
+        {
+          "command": "loom.mappings.resolve",
+          "when": "view == loom.mappings",
+          "group": "navigation@2"
+        },
+        {
+          "command": "loom.mappings.refresh",
+          "when": "view == loom.mappings",
           "group": "navigation@9"
         }
       ],
@@ -258,6 +301,16 @@
           "command": "loom.scheduler.reassign",
           "when": "view == loom.scheduler && viewItem == schedulerMember",
           "group": "1_move@1"
+        },
+        {
+          "command": "loom.mappings.toggle",
+          "when": "view == loom.mappings && viewItem =~ /^mapping/",
+          "group": "1_state@1"
+        },
+        {
+          "command": "loom.mappings.delete",
+          "when": "view == loom.mappings && viewItem =~ /^mapping/",
+          "group": "1_state@2"
         }
       ],
       "commandPalette": [

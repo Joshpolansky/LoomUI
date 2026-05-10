@@ -4,11 +4,13 @@ import { LiveStream } from './api/liveStream';
 import { ModulesProvider } from './views/modulesView';
 import { SchedulerProvider } from './views/schedulerView';
 import { BusProvider } from './views/busView';
+import { MappingsProvider } from './views/mappingsView';
 import { RuntimeProcess } from './runtime/runtimeProcess';
 import { registerRuntimeCommands } from './commands/runtimeCommands';
 import { registerModuleCommands } from './commands/moduleCommands';
 import { registerDebugCommands } from './commands/debugCommands';
 import { registerSchedulerCommands } from './commands/schedulerCommands';
+import { registerMappingCommands } from './commands/mappingCommands';
 import {
   LoomDebugAdapterFactory,
   LoomDebugConfigurationProvider,
@@ -26,12 +28,16 @@ export function activate(context: vscode.ExtensionContext): void {
   const modulesProvider   = new ModulesProvider(client, live);
   const schedulerProvider = new SchedulerProvider(client, live);
   const busProvider       = new BusProvider(client);
-
-  context.subscriptions.push(runtime, live, modulesProvider, schedulerProvider, busProvider);
+  const mappingsProvider  = new MappingsProvider(client);
 
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider('loom.modules', modulesProvider),
-    vscode.window.registerTreeDataProvider('loom.bus',     busProvider),
+    runtime, live, modulesProvider, schedulerProvider, busProvider, mappingsProvider,
+  );
+
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider('loom.modules',  modulesProvider),
+    vscode.window.registerTreeDataProvider('loom.bus',      busProvider),
+    vscode.window.registerTreeDataProvider('loom.mappings', mappingsProvider),
     // Scheduler view uses createTreeView so we can attach the
     // TreeDragAndDropController for reassigning modules between classes.
     vscode.window.createTreeView('loom.scheduler', {
@@ -44,6 +50,7 @@ export function activate(context: vscode.ExtensionContext): void {
   registerRuntimeCommands(context, runtime, modulesProvider);
   registerModuleCommands(context, client, live, modulesProvider);
   registerSchedulerCommands(context, client, schedulerProvider);
+  registerMappingCommands(context, client, mappingsProvider);
   registerDebugCommands(context);
 
   // --- DAP-based module inspector ---
@@ -130,6 +137,7 @@ export function activate(context: vscode.ExtensionContext): void {
           modulesProvider.refresh();
           schedulerProvider.refresh();
           busProvider.refresh();
+          mappingsProvider.refresh();
           live.reconnect();
         }, 800);
       } else {
@@ -145,6 +153,7 @@ export function activate(context: vscode.ExtensionContext): void {
         modulesProvider.refresh();
         schedulerProvider.refresh();
         busProvider.refresh();
+        mappingsProvider.refresh();
       }
       if (e.affectsConfiguration('loom.port')) updateStatus(runtime.running);
     }),

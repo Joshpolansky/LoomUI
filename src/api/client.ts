@@ -6,6 +6,7 @@ import type {
   ServiceInfo,
   ServiceCallResult,
   DataSection,
+  IOMapping,
 } from './types';
 
 export class LoomClient {
@@ -144,5 +145,35 @@ export class LoomClient {
       headers: { 'Content-Type': 'application/json' },
       body: request,
     });
+  }
+
+  // --- io mappings ---
+  getMappings(): Promise<IOMapping[]> { return this.json('/api/io-mappings'); }
+
+  createMapping(m: { source: string; target: string; enabled: boolean }): Promise<{ ok: boolean; index?: number }> {
+    return this.json('/api/io-mappings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(m),
+    });
+  }
+
+  updateMapping(
+    index: number,
+    patch: { source: string; target: string; enabled: boolean },
+  ): Promise<{ ok: boolean }> {
+    return this.json(`/api/io-mappings/${index}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+  }
+
+  deleteMapping(index: number): Promise<{ ok: boolean }> {
+    return this.json(`/api/io-mappings/${index}`, { method: 'DELETE' });
+  }
+
+  resolveMappings(): Promise<{ ok: boolean }> {
+    return this.json('/api/io-mappings/resolve', { method: 'POST' });
   }
 }

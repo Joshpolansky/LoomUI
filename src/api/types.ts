@@ -66,6 +66,15 @@ export interface ServiceCallResult {
 
 export type DataSection = 'config' | 'recipe' | 'runtime' | 'summary';
 
+export interface IOMapping {
+  index?: number;
+  source: string;          // "moduleId.section.path/to/field"
+  target: string;
+  enabled: boolean;
+  status?: string;         // 'resolved' | 'error' | etc.
+  error?: string;
+}
+
 export const MODULE_STATES: Record<number, string> = {
   0: 'Unloaded',
   1: 'Loaded',
