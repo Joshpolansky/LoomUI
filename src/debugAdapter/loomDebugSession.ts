@@ -168,12 +168,17 @@ export class LoomDebugSession extends DebugSession {
       return this.modules
         .slice()
         .sort((a, b) => a.id.localeCompare(b.id))
-        .map((m) => ({
-          name: m.id,
-          value: MODULE_STATES[m.state] ?? `state ${m.state}`,
-          variablesReference: this.handles.create({ kind: 'module', moduleId: m.id }),
-          presentationHint: { attributes: ['readOnly'] },
-        }));
+        .map((m) => {
+          const stateName = MODULE_STATES[m.state] ?? `state ${m.state}`;
+          // Pack metadata into the value column so it can't collide with
+          // a field literally named id/class/version/state inside the
+          // runtime or summary struct.
+          return {
+            name: m.id,
+            value: `${m.className} v${m.version}  ·  ${stateName}`,
+            variablesReference: this.handles.create({ kind: 'module', moduleId: m.id }),
+          };
+        });
     }
 
     if (!h.moduleId) return [];
@@ -182,17 +187,16 @@ export class LoomDebugSession extends DebugSession {
       const detail = await this.ensureDetail(h.moduleId);
       if (!detail) return [];
       const out: DebugProtocol.Variable[] = [];
-      out.push(this.readonly('id', detail.id));
-      out.push(this.readonly('class', detail.className));
-      out.push(this.readonly('version', detail.version));
-      out.push(this.readonly('state', MODULE_STATES[detail.state] ?? `${detail.state}`));
+      // Metadata (id, class, version, state) is shown in the parent row's
+      // value — kept out of the children to avoid colliding with fields
+      // that the module's own runtime/summary struct may define.
       if (detail.cyclicClass) out.push(this.readonly('cyclic_class', detail.cyclicClass));
+      out.push(this.readonly('path', detail.path));
       if (detail.stats) {
         out.push({
           name: 'stats',
           value: '{...}',
           variablesReference: this.handles.create({ kind: 'stats', moduleId: h.moduleId }),
-          presentationHint: { attributes: ['readOnly'] },
         });
       }
       for (const section of ['config', 'recipe', 'runtime', 'summary'] as const) {
@@ -203,9 +207,6 @@ export class LoomDebugSession extends DebugSession {
           variablesReference: this.handles.create({
             kind: 'section', moduleId: h.moduleId, section, path: [],
           }),
-          presentationHint: section === 'summary'
-            ? { attributes: ['readOnly'] }
-            : undefined,
         });
       }
       return out;
@@ -249,18 +250,17 @@ export class LoomDebugSession extends DebugSession {
   ): DebugProtocol.Variable {
     const segName = name.startsWith('[') && name.endsWith(']') ? name.slice(1, -1) : name;
     const path = [...parentPath, segName];
-    const readOnly = section === 'summary';
+    const editable = section !== 'summary';
 
     if (value === null || typeof value !== 'object') {
       // Primitive leaf: set evaluateName so the right-click "Set Value"
-      // command can decode (moduleId, section, path) without us having to
-      // serialise variable references in another way.
+      // command can decode (moduleId, section, path). Editability is
+      // gated on the presence of evaluateName, not on a presentationHint.
       return {
         name,
         value: formatPrimitive(value),
         variablesReference: 0,
-        presentationHint: readOnly ? { attributes: ['readOnly'] } : undefined,
-        evaluateName: readOnly ? undefined : encodeEvalName(moduleId, section, path),
+        evaluateName: editable ? encodeEvalName(moduleId, section, path) : undefined,
       };
     }
 
@@ -272,7 +272,6 @@ export class LoomDebugSession extends DebugSession {
       name,
       value: summarize(value),
       variablesReference: ref,
-      presentationHint: readOnly ? { attributes: ['readOnly'] } : undefined,
     };
   }
 
@@ -281,7 +280,6 @@ export class LoomDebugSession extends DebugSession {
       name,
       value,
       variablesReference: 0,
-      presentationHint: { attributes: ['readOnly'] },
     };
   }
 
