@@ -74,6 +74,11 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "loom.modules.manage",
+        "title": "Loom: Manage Modules...",
+        "icon": "$(settings-gear)"
+      },
+      {
         "command": "loom.modules.openDetail",
         "title": "Loom: Inspect Module in Variables View"
       },
@@ -141,7 +146,7 @@
           "group": "navigation@2"
         },
         {
-          "command": "loom.modules.instantiate",
+          "command": "loom.modules.manage",
           "when": "view == loom.modules",
           "group": "navigation@3"
         },

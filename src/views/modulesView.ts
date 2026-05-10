@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 import type { LoomClient } from '../api/client';
 import type { LiveStream, LiveUpdate } from '../api/liveStream';
-import { MODULE_STATES, type ModuleInfo, type DataSection } from '../api/types';
+import { MODULE_STATES, type ModuleInfo } from '../api/types';
 import { serverUrl } from '../util/paths';
 
-type Node = StatusNode | StateGroupNode | ModuleNode | SectionNode;
+type Node = StatusNode | StateGroupNode | ModuleNode;
 
 class StatusNode {
   readonly kind = 'status';
@@ -21,10 +21,6 @@ class StateGroupNode {
 export class ModuleNode {
   readonly kind = 'module';
   constructor(public readonly info: ModuleInfo) {}
-}
-class SectionNode {
-  readonly kind = 'section';
-  constructor(public readonly moduleId: string, public readonly section: DataSection) {}
 }
 
 export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Disposable {
@@ -129,7 +125,7 @@ export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Di
         const overruns = info.stats?.overrunCount ?? 0;
         const item = new vscode.TreeItem(
           `${info.id}`,
-          vscode.TreeItemCollapsibleState.Collapsed,
+          vscode.TreeItemCollapsibleState.None,
         );
         item.description =
           `${info.className} v${info.version} · ${cycleUs}µs · overruns ${overruns}` +
@@ -147,21 +143,11 @@ export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Di
           info.state === 4 ? 'debug-pause' :
           'circle-outline',
         );
-        return item;
-      }
-      case 'section': {
-        const item = new vscode.TreeItem(node.section, vscode.TreeItemCollapsibleState.None);
-        item.contextValue = 'section';
-        item.iconPath = new vscode.ThemeIcon(
-          node.section === 'config'  ? 'settings-gear' :
-          node.section === 'recipe'  ? 'beaker' :
-          node.section === 'runtime' ? 'pulse' :
-          'list-flat',
-        );
+        // Click on a module routes to the DAP inspector.
         item.command = {
           command: 'loom.modules.openDetail',
-          title: 'Open Module Detail',
-          arguments: [node.moduleId, node.section],
+          title: 'Inspect',
+          arguments: [info.id],
         };
         return item;
       }
@@ -187,10 +173,6 @@ export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Di
         .slice()
         .sort((a, b) => a.id.localeCompare(b.id))
         .map((m) => new ModuleNode(m));
-    }
-    if (node.kind === 'module') {
-      return (['config', 'recipe', 'runtime', 'summary'] as const)
-        .map((s) => new SectionNode(node.info.id, s));
     }
     return [];
   }

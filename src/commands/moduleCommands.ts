@@ -1,12 +1,17 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 import type { LoomClient } from '../api/client';
+import type { LiveStream } from '../api/liveStream';
 import type { ModulesProvider } from '../views/modulesView';
 import { ModuleNode } from '../views/modulesView';
 import { getExtensionOutput } from '../util/output';
+import { ManagementPanel } from '../webview/managementPanel';
 
 export function registerModuleCommands(
   context: vscode.ExtensionContext,
   client: LoomClient,
+  live: LiveStream,
   view: ModulesProvider,
 ): void {
   const out = getExtensionOutput();
@@ -129,6 +134,32 @@ export function registerModuleCommands(
         view.refresh();
       } catch (e) {
         vscode.window.showErrorMessage(`Instantiate failed: ${(e as Error).message}`);
+      }
+    }),
+
+    vscode.commands.registerCommand('loom.modules.manage', () => {
+      ManagementPanel.show(context, client, live);
+    }),
+
+    vscode.commands.registerCommand('loom.modules.upload', async () => {
+      const uri = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        filters: { 'Module': ['so', 'dylib', 'dll'] },
+        title: 'Select module to upload',
+      });
+      if (!uri || uri.length === 0) return;
+      try {
+        const filename = path.basename(uri[0].fsPath);
+        const content = await fs.readFile(uri[0].fsPath);
+        const r = await client.uploadModule(filename, content);
+        if (r.ok) {
+          vscode.window.showInformationMessage(`Uploaded ${filename}.`);
+          view.refresh();
+        } else {
+          vscode.window.showErrorMessage(`Upload failed: ${r.error ?? 'unknown'}`);
+        }
+      } catch (e) {
+        vscode.window.showErrorMessage(`Upload failed: ${(e as Error).message}`);
       }
     }),
 

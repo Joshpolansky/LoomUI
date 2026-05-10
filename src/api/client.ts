@@ -82,6 +82,19 @@ export class LoomClient {
   // --- scheduler ---
   getSchedulerClasses(): Promise<ClassInfo[]> { return this.json('/api/scheduler/classes'); }
 
+  async uploadModule(
+    filename: string,
+    content: Buffer | Uint8Array,
+  ): Promise<{ ok: boolean; id?: string; error?: string }> {
+    const res = await fetch(`${this.base()}/api/modules/upload`, {
+      method: 'POST',
+      headers: { 'X-Filename': filename, 'Content-Type': 'application/octet-stream' },
+      body: content,
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return (await res.json()) as { ok: boolean; id?: string; error?: string };
+  }
+
   // --- bus ---
   getBusServices(): Promise<ServiceInfo[]> { return this.json('/api/bus/services'); }
   getBusTopics():   Promise<string[]>      { return this.json('/api/bus/topics'); }

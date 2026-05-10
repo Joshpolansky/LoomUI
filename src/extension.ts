@@ -35,7 +35,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   registerRuntimeCommands(context, runtime, modulesProvider);
-  registerModuleCommands(context, client, modulesProvider);
+  registerModuleCommands(context, client, live, modulesProvider);
   registerDebugCommands(context);
 
   // --- DAP-based module inspector ---

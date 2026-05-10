@@ -4,8 +4,9 @@ A VSCode extension for working with the [Loom](../Loom) runtime: a side-panel mo
 
 ## Features
 
-- **Modules side panel** — tree of loaded modules grouped by state (Running / Initialized / Loaded / Error / …) with per-module cycle time and overrun count, refreshed live over WebSocket.
-- **Inspect Modules debug session** — `Loom: Inspect Modules` starts a custom debug session that surfaces every module in VSCode's standard **Variables** panel. One scope per module; nested `config`, `recipe`, `runtime`, and `summary` trees expand inline. Click any leaf to edit — the value PATCHes back to `/api/modules/:id/data/:section` and the cache mirrors it optimistically. Live frames invalidate the visible variables so values tick in the Variables view. `summary` is read-only.
+- **Modules side panel** — tree of loaded modules grouped by state (Running / Initialized / Loaded / Error / …) with per-module cycle time and overrun count, refreshed live over WebSocket. Click a module to open it in the inspector.
+- **Module Management webview** — `Loom: Manage Modules…` opens a tabbed UI for instance lifecycle: spawn from any available `.so`/`.dylib`, hot-reload, save/load config to disk, remove, or upload a freshly built module. Live cycle stats per row.
+- **Inspect Modules debug session** — `Loom: Inspect Modules` starts a custom debug session that surfaces every module in VSCode's standard **Variables** panel. A single auto-expanded `Modules` scope shows every instance; expanding a module reveals `config`, `recipe`, `runtime`, and `summary` trees. Right-click any editable leaf → `Loom: Set Value…` for a modal edit (avoids the inline-edit / live-tick race). All module details are prefetched on attach so expansion is instant. `summary` is read-only.
 - **Scheduler side panel** — scheduler classes with period, priority, last cycle time, and tick count; expand a class to see its assigned modules.
 - **Bus side panel** — registered RPC services and active pub/sub topics. Click a service to call it with a JSON request body.
 - **Runtime lifecycle** — start, stop, restart, or attach to the `loom` binary directly from the activity bar; output streams to a `Loom Runtime` channel. Status bar shows connection state and toggles on click.
@@ -73,9 +74,11 @@ All commands are available from the palette under the `Loom:` prefix.
 - `Loom: Connect to Runtime…` — change `serverUrl`
 
 **Modules**
+- `Loom: Manage Modules…` — opens the management webview (instances, available `.so`s, upload)
 - `Loom: Inspect Modules (Debug Session)` — opens the Variables view with every module's data as editable nested variables
 - `Loom: Refresh Modules`
 - `Loom: Instantiate Module…`
+- `Loom: Upload Module…`
 - `Loom: Reload Module` (right-click)
 - `Loom: Remove Module` (right-click)
 - `Loom: Save Module Config` / `Loom: Load Module Config from Disk` (right-click)
