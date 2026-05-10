@@ -126,6 +126,36 @@
       {
         "command": "loom.bus.callService",
         "title": "Loom: Call Bus Service..."
+      },
+      {
+        "command": "loom.scheduler.refresh",
+        "title": "Loom: Refresh Scheduler",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "loom.scheduler.newClass",
+        "title": "Loom: New Scheduler Class...",
+        "icon": "$(add)"
+      },
+      {
+        "command": "loom.scheduler.editPeriod",
+        "title": "Loom: Edit Period..."
+      },
+      {
+        "command": "loom.scheduler.editPriority",
+        "title": "Loom: Edit Priority..."
+      },
+      {
+        "command": "loom.scheduler.editCpuAffinity",
+        "title": "Loom: Edit CPU Affinity..."
+      },
+      {
+        "command": "loom.scheduler.editSpin",
+        "title": "Loom: Edit Spin..."
+      },
+      {
+        "command": "loom.scheduler.reassign",
+        "title": "Loom: Reassign Module to Class..."
       }
     ],
     "menus": {
@@ -158,6 +188,16 @@
         {
           "command": "loom.modules.refresh",
           "when": "view == loom.modules",
+          "group": "navigation@9"
+        },
+        {
+          "command": "loom.scheduler.newClass",
+          "when": "view == loom.scheduler",
+          "group": "navigation@1"
+        },
+        {
+          "command": "loom.scheduler.refresh",
+          "when": "view == loom.scheduler",
           "group": "navigation@9"
         }
       ],
@@ -193,6 +233,31 @@
           "command": "loom.bus.callService",
           "when": "view == loom.bus && viewItem == busService",
           "group": "1_call@1"
+        },
+        {
+          "command": "loom.scheduler.editPeriod",
+          "when": "view == loom.scheduler && viewItem == schedulerClass",
+          "group": "1_edit@1"
+        },
+        {
+          "command": "loom.scheduler.editPriority",
+          "when": "view == loom.scheduler && viewItem == schedulerClass",
+          "group": "1_edit@2"
+        },
+        {
+          "command": "loom.scheduler.editCpuAffinity",
+          "when": "view == loom.scheduler && viewItem == schedulerClass",
+          "group": "1_edit@3"
+        },
+        {
+          "command": "loom.scheduler.editSpin",
+          "when": "view == loom.scheduler && viewItem == schedulerClass",
+          "group": "1_edit@4"
+        },
+        {
+          "command": "loom.scheduler.reassign",
+          "when": "view == loom.scheduler && viewItem == schedulerMember",
+          "group": "1_move@1"
         }
       ],
       "commandPalette": [

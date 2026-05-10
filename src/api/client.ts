@@ -82,6 +82,43 @@ export class LoomClient {
   // --- scheduler ---
   getSchedulerClasses(): Promise<ClassInfo[]> { return this.json('/api/scheduler/classes'); }
 
+  createSchedulerClass(def: {
+    name: string;
+    period_us: number;
+    priority: number;
+    cpu_affinity: number;
+    spin_us: number;
+  }): Promise<{ ok: boolean }> {
+    return this.json('/api/scheduler/classes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(def),
+    });
+  }
+
+  updateSchedulerClass(
+    name: string,
+    patch: Partial<Pick<ClassInfo, 'period_us' | 'priority' | 'cpu_affinity' | 'spin_us'>>,
+  ): Promise<{ ok: boolean }> {
+    return this.json(`/api/scheduler/classes/${encodeURIComponent(name)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+  }
+
+  reassignModuleClass(
+    moduleId: string,
+    className: string,
+    order?: number,
+  ): Promise<{ ok: boolean }> {
+    return this.json('/api/scheduler/reassign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ moduleId, class: className, ...(order != null ? { order } : {}) }),
+    });
+  }
+
   async uploadModule(
     filename: string,
     content: Buffer | Uint8Array,

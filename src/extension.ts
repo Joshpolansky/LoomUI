@@ -8,6 +8,7 @@ import { RuntimeProcess } from './runtime/runtimeProcess';
 import { registerRuntimeCommands } from './commands/runtimeCommands';
 import { registerModuleCommands } from './commands/moduleCommands';
 import { registerDebugCommands } from './commands/debugCommands';
+import { registerSchedulerCommands } from './commands/schedulerCommands';
 import {
   LoomDebugAdapterFactory,
   LoomDebugConfigurationProvider,
@@ -29,13 +30,20 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(runtime, live, modulesProvider, schedulerProvider, busProvider);
 
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider('loom.modules',   modulesProvider),
-    vscode.window.registerTreeDataProvider('loom.scheduler', schedulerProvider),
-    vscode.window.registerTreeDataProvider('loom.bus',       busProvider),
+    vscode.window.registerTreeDataProvider('loom.modules', modulesProvider),
+    vscode.window.registerTreeDataProvider('loom.bus',     busProvider),
+    // Scheduler view uses createTreeView so we can attach the
+    // TreeDragAndDropController for reassigning modules between classes.
+    vscode.window.createTreeView('loom.scheduler', {
+      treeDataProvider: schedulerProvider,
+      dragAndDropController: schedulerProvider,
+      canSelectMany: true,
+    }),
   );
 
   registerRuntimeCommands(context, runtime, modulesProvider);
   registerModuleCommands(context, client, live, modulesProvider);
+  registerSchedulerCommands(context, client, schedulerProvider);
   registerDebugCommands(context);
 
   // --- DAP-based module inspector ---

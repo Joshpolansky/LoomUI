@@ -3,18 +3,26 @@ import type { LoomClient } from '../api/client';
 import type { LiveStream } from '../api/liveStream';
 import type { ClassInfo, ClassLiveStats } from '../api/types';
 
-type Node = ClassNode | MemberNode;
+export type Node = ClassNode | MemberNode;
 
-class ClassNode {
+const DRAG_MIME = 'application/vnd.code.tree.loom.scheduler';
+
+export class ClassNode {
   readonly kind = 'class';
   constructor(public readonly info: ClassInfo, public readonly live: ClassLiveStats | undefined) {}
 }
-class MemberNode {
+export class MemberNode {
   readonly kind = 'member';
-  constructor(public readonly id: string) {}
+  constructor(public readonly id: string, public readonly className: string) {}
 }
 
-export class SchedulerProvider implements vscode.TreeDataProvider<Node>, vscode.Disposable {
+export class SchedulerProvider
+  implements vscode.TreeDataProvider<Node>, vscode.TreeDragAndDropController<Node>, vscode.Disposable
+{
+  // TreeDragAndDropController contract
+  readonly dragMimeTypes = [DRAG_MIME];
+  readonly dropMimeTypes = [DRAG_MIME];
+
   private classes: ClassInfo[] = [];
   private liveStats: Record<string, ClassLiveStats> = {};
   private pollTimer: NodeJS.Timeout | null = null;
@@ -46,6 +54,10 @@ export class SchedulerProvider implements vscode.TreeDataProvider<Node>, vscode.
   }
 
   refresh(): void { void this.poll(); }
+
+  classNames(): string[] {
+    return this.classes.map((c) => c.name);
+  }
 
   private async poll(): Promise<void> {
     try {
@@ -103,9 +115,54 @@ export class SchedulerProvider implements vscode.TreeDataProvider<Node>, vscode.
         .map((c) => new ClassNode(c, this.liveStats[c.name]));
     }
     if (node.kind === 'class') {
-      return (node.info.modules ?? []).map((id) => new MemberNode(id));
+      return (node.info.modules ?? []).map((id) => new MemberNode(id, node.info.name));
     }
     return [];
+  }
+
+  // ---------- drag & drop ----------
+
+  handleDrag(source: readonly Node[], dataTransfer: vscode.DataTransfer): void {
+    const members = source.filter((n): n is MemberNode => n.kind === 'member');
+    if (members.length === 0) return;
+    // Encode as JSON array of { id, fromClass } so handleDrop knows the
+    // source class (useful for "no-op when dropped on the same class").
+    dataTransfer.set(
+      DRAG_MIME,
+      new vscode.DataTransferItem(JSON.stringify(
+        members.map((m) => ({ id: m.id, fromClass: m.className })),
+      )),
+    );
+  }
+
+  async handleDrop(target: Node | undefined, dataTransfer: vscode.DataTransfer): Promise<void> {
+    if (!target) return;
+    const targetClassName = target.kind === 'class' ? target.info.name : target.className;
+    if (!targetClassName) return;
+
+    const item = dataTransfer.get(DRAG_MIME);
+    if (!item) return;
+    let payload: Array<{ id: string; fromClass: string }>;
+    try {
+      payload = JSON.parse(typeof item.value === 'string' ? item.value : await item.asString());
+    } catch {
+      return;
+    }
+    const reassigns = payload.filter((p) => p.fromClass !== targetClassName);
+    if (reassigns.length === 0) return;
+
+    const failures: string[] = [];
+    for (const { id } of reassigns) {
+      try {
+        await this.client.reassignModuleClass(id, targetClassName);
+      } catch (e) {
+        failures.push(`${id}: ${(e as Error).message}`);
+      }
+    }
+    if (failures.length > 0) {
+      vscode.window.showErrorMessage(`Reassign failed: ${failures.join('; ')}`);
+    }
+    this.refresh();
   }
 
   dispose(): void {
