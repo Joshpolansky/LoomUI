@@ -11,6 +11,7 @@ import { registerModuleCommands } from './commands/moduleCommands';
 import { registerDebugCommands } from './commands/debugCommands';
 import { registerSchedulerCommands } from './commands/schedulerCommands';
 import { registerMappingCommands } from './commands/mappingCommands';
+import { registerProjectCommands } from './commands/projectCommands';
 import {
   LoomDebugAdapterFactory,
   LoomDebugConfigurationProvider,
@@ -51,6 +52,7 @@ export function activate(context: vscode.ExtensionContext): void {
   registerModuleCommands(context, client, live, modulesProvider);
   registerSchedulerCommands(context, client, schedulerProvider);
   registerMappingCommands(context, client, mappingsProvider);
+  registerProjectCommands(context);
   registerDebugCommands(context, runtime);
 
   // --- DAP-based module inspector ---

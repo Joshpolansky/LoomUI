@@ -143,6 +143,11 @@
         "title": "Loom: Upload Module..."
       },
       {
+        "command": "loom.modules.newProject",
+        "title": "Loom: New Module Project...",
+        "icon": "$(new-folder)"
+      },
+      {
         "command": "loom.bus.callService",
         "title": "Loom: Call Bus Service..."
       },
