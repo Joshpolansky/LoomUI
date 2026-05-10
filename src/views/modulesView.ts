@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { LoomClient } from '../api/client';
+import type { LiveStream, LiveUpdate } from '../api/liveStream';
 import { MODULE_STATES, type ModuleInfo, type DataSection } from '../api/types';
 import { serverUrl } from '../util/paths';
 
@@ -7,7 +8,11 @@ type Node = StatusNode | StateGroupNode | ModuleNode | SectionNode;
 
 class StatusNode {
   readonly kind = 'status';
-  constructor(public readonly connected: boolean, public readonly url: string) {}
+  constructor(
+    public readonly httpReachable: boolean,
+    public readonly wsConnected: boolean,
+    public readonly url: string,
+  ) {}
 }
 class StateGroupNode {
   readonly kind = 'group';
@@ -27,12 +32,25 @@ export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Di
   readonly onDidChangeTreeData = this._onDidChange.event;
 
   private modules: ModuleInfo[] = [];
-  private connected = false;
+  private httpReachable = false;
   private pollTimer: NodeJS.Timeout | null = null;
   private inflight = false;
+  private readonly disposables: vscode.Disposable[] = [];
 
-  constructor(private readonly client: LoomClient) {
+  constructor(
+    private readonly client: LoomClient,
+    private readonly live: LiveStream,
+  ) {
     this.startPolling();
+    this.disposables.push(
+      this.live.onLive((u) => this.applyLive(u)),
+      this.live.onConnectionChange((connected) => {
+        // On reconnect, re-fetch the module list to catch instantiate/remove
+        // events the WS doesn't broadcast.
+        if (connected) void this.poll();
+        else this._onDidChange.fire(undefined);
+      }),
+    );
   }
 
   refresh(): void {
@@ -51,26 +69,47 @@ export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Di
     try {
       const list = await this.client.getModules();
       this.modules = list;
-      this.connected = true;
+      this.httpReachable = true;
     } catch {
       this.modules = [];
-      this.connected = false;
+      this.httpReachable = false;
     } finally {
       this.inflight = false;
       this._onDidChange.fire(undefined);
     }
   }
 
+  /** Patch in-memory module stats from a live frame, then refresh affected nodes. */
+  private applyLive(u: LiveUpdate): void {
+    let mutated = false;
+    for (const m of this.modules) {
+      const live = u.modules[m.id];
+      if (!live?.stats) continue;
+      m.stats = live.stats;
+      mutated = true;
+    }
+    if (mutated) this._onDidChange.fire(undefined);
+  }
+
   getTreeItem(node: Node): vscode.TreeItem {
     switch (node.kind) {
       case 'status': {
+        const wsTag = node.httpReachable
+          ? (node.wsConnected ? ' · live' : ' · polling')
+          : '';
         const item = new vscode.TreeItem(
-          node.connected ? `Connected — ${node.url}` : `Disconnected — ${node.url}`,
+          node.httpReachable
+            ? `Connected — ${node.url}${wsTag}`
+            : `Disconnected — ${node.url}`,
         );
-        item.iconPath = new vscode.ThemeIcon(node.connected ? 'pass-filled' : 'circle-slash');
+        item.iconPath = new vscode.ThemeIcon(
+          node.httpReachable
+            ? (node.wsConnected ? 'pass-filled' : 'sync')
+            : 'circle-slash',
+        );
         item.contextValue = 'status';
-        item.tooltip = node.connected
-          ? 'Loom runtime reachable.'
+        item.tooltip = node.httpReachable
+          ? `Loom runtime is reachable.\nWebSocket: ${node.wsConnected ? 'connected (live updates)' : 'disconnected (REST polling fallback)'}`
           : 'Cannot reach Loom runtime. Start it from this view or check loom.serverUrl.';
         return item;
       }
@@ -131,7 +170,7 @@ export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Di
 
   getChildren(node?: Node): Node[] {
     if (!node) {
-      const status = new StatusNode(this.connected, serverUrl());
+      const status = new StatusNode(this.httpReachable, this.live.connected, serverUrl());
       const byState = new Map<number, ModuleInfo[]>();
       for (const m of this.modules) {
         const arr = byState.get(m.state) ?? [];
@@ -158,6 +197,7 @@ export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Di
 
   dispose(): void {
     if (this.pollTimer) clearInterval(this.pollTimer);
+    for (const d of this.disposables) d.dispose();
     this._onDidChange.dispose();
   }
 }

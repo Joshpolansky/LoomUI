@@ -32,47 +32,154 @@
     },
     "views": {
       "loom": [
-        { "id": "loom.modules",   "name": "Modules" },
-        { "id": "loom.scheduler", "name": "Scheduler" },
-        { "id": "loom.bus",       "name": "Bus" }
+        {
+          "id": "loom.modules",
+          "name": "Modules"
+        },
+        {
+          "id": "loom.scheduler",
+          "name": "Scheduler"
+        },
+        {
+          "id": "loom.bus",
+          "name": "Bus"
+        }
       ]
     },
     "commands": [
-      { "command": "loom.runtime.start",    "title": "Loom: Start Runtime",          "icon": "$(debug-start)"   },
-      { "command": "loom.runtime.stop",     "title": "Loom: Stop Runtime",           "icon": "$(debug-stop)"    },
-      { "command": "loom.runtime.restart",  "title": "Loom: Restart Runtime",        "icon": "$(debug-restart)" },
-      { "command": "loom.runtime.debug",    "title": "Loom: Debug Runtime (Native)", "icon": "$(debug-alt)"     },
-      { "command": "loom.runtime.toggle",   "title": "Loom: Toggle Runtime"          },
-      { "command": "loom.runtime.connect",  "title": "Loom: Connect to Runtime..."   },
-
-      { "command": "loom.modules.refresh",     "title": "Loom: Refresh Modules", "icon": "$(refresh)" },
-      { "command": "loom.modules.openDetail",  "title": "Loom: Open Module Detail" },
-      { "command": "loom.modules.instantiate", "title": "Loom: Instantiate Module...", "icon": "$(add)" },
-      { "command": "loom.modules.remove",      "title": "Loom: Remove Module", "icon": "$(trash)" },
-      { "command": "loom.modules.reload",      "title": "Loom: Reload Module", "icon": "$(refresh)" },
-      { "command": "loom.modules.saveConfig",  "title": "Loom: Save Module Config" },
-      { "command": "loom.modules.loadConfig",  "title": "Loom: Load Module Config from Disk" },
-      { "command": "loom.modules.upload",      "title": "Loom: Upload Module..." },
-
-      { "command": "loom.bus.callService",     "title": "Loom: Call Bus Service..." }
+      {
+        "command": "loom.runtime.start",
+        "title": "Loom: Start Runtime",
+        "icon": "$(debug-start)"
+      },
+      {
+        "command": "loom.runtime.stop",
+        "title": "Loom: Stop Runtime",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "loom.runtime.restart",
+        "title": "Loom: Restart Runtime",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "loom.runtime.debug",
+        "title": "Loom: Debug Runtime (Native)",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "command": "loom.runtime.toggle",
+        "title": "Loom: Toggle Runtime"
+      },
+      {
+        "command": "loom.runtime.connect",
+        "title": "Loom: Connect to Runtime..."
+      },
+      {
+        "command": "loom.modules.refresh",
+        "title": "Loom: Refresh Modules",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "loom.modules.openDetail",
+        "title": "Loom: Open Module Detail"
+      },
+      {
+        "command": "loom.modules.instantiate",
+        "title": "Loom: Instantiate Module...",
+        "icon": "$(add)"
+      },
+      {
+        "command": "loom.modules.remove",
+        "title": "Loom: Remove Module",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "loom.modules.reload",
+        "title": "Loom: Reload Module",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "loom.modules.saveConfig",
+        "title": "Loom: Save Module Config"
+      },
+      {
+        "command": "loom.modules.loadConfig",
+        "title": "Loom: Load Module Config from Disk"
+      },
+      {
+        "command": "loom.modules.upload",
+        "title": "Loom: Upload Module..."
+      },
+      {
+        "command": "loom.bus.callService",
+        "title": "Loom: Call Bus Service..."
+      }
     ],
     "menus": {
       "view/title": [
-        { "command": "loom.runtime.start",       "when": "view == loom.modules && !loom.runtimeRunning", "group": "navigation@1" },
-        { "command": "loom.runtime.stop",        "when": "view == loom.modules && loom.runtimeRunning",  "group": "navigation@1" },
-        { "command": "loom.runtime.restart",     "when": "view == loom.modules && loom.runtimeRunning",  "group": "navigation@2" },
-        { "command": "loom.modules.instantiate", "when": "view == loom.modules", "group": "navigation@3" },
-        { "command": "loom.modules.refresh",     "when": "view == loom.modules", "group": "navigation@9" }
+        {
+          "command": "loom.runtime.start",
+          "when": "view == loom.modules && !loom.runtimeRunning",
+          "group": "navigation@1"
+        },
+        {
+          "command": "loom.runtime.stop",
+          "when": "view == loom.modules && loom.runtimeRunning",
+          "group": "navigation@1"
+        },
+        {
+          "command": "loom.runtime.restart",
+          "when": "view == loom.modules && loom.runtimeRunning",
+          "group": "navigation@2"
+        },
+        {
+          "command": "loom.modules.instantiate",
+          "when": "view == loom.modules",
+          "group": "navigation@3"
+        },
+        {
+          "command": "loom.modules.refresh",
+          "when": "view == loom.modules",
+          "group": "navigation@9"
+        }
       ],
       "view/item/context": [
-        { "command": "loom.modules.reload",     "when": "view == loom.modules && viewItem == module", "group": "1_lifecycle@1" },
-        { "command": "loom.modules.remove",     "when": "view == loom.modules && viewItem == module", "group": "1_lifecycle@2" },
-        { "command": "loom.modules.saveConfig", "when": "view == loom.modules && viewItem == module", "group": "2_config@1" },
-        { "command": "loom.modules.loadConfig", "when": "view == loom.modules && viewItem == module", "group": "2_config@2" }
+        {
+          "command": "loom.modules.reload",
+          "when": "view == loom.modules && viewItem == module",
+          "group": "1_lifecycle@1"
+        },
+        {
+          "command": "loom.modules.remove",
+          "when": "view == loom.modules && viewItem == module",
+          "group": "1_lifecycle@2"
+        },
+        {
+          "command": "loom.modules.saveConfig",
+          "when": "view == loom.modules && viewItem == module",
+          "group": "2_config@1"
+        },
+        {
+          "command": "loom.modules.loadConfig",
+          "when": "view == loom.modules && viewItem == module",
+          "group": "2_config@2"
+        },
+        {
+          "command": "loom.bus.callService",
+          "when": "view == loom.bus && viewItem == busService",
+          "group": "1_call@1"
+        }
       ],
       "commandPalette": [
-        { "command": "loom.runtime.toggle",     "when": "false" },
-        { "command": "loom.modules.openDetail", "when": "false" }
+        {
+          "command": "loom.runtime.toggle",
+          "when": "false"
+        },
+        {
+          "command": "loom.modules.openDetail",
+          "when": "false"
+        }
       ]
     },
     "configuration": {
@@ -115,7 +222,10 @@
         },
         "loom.debugAdapter": {
           "type": "string",
-          "enum": ["lldb", "cppdbg"],
+          "enum": [
+            "lldb",
+            "cppdbg"
+          ],
           "default": "lldb",
           "description": "Native debug adapter for 'Debug Runtime'. 'lldb' uses CodeLLDB (vadimcn.vscode-lldb); 'cppdbg' uses Microsoft C/C++ (ms-vscode.cpptools)."
         },
@@ -136,7 +246,11 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.90.0",
+    "@types/ws": "^8.18.1",
     "esbuild": "^0.24.0",
     "typescript": "^5.5.0"
+  },
+  "dependencies": {
+    "ws": "^8.20.0"
   }
 }

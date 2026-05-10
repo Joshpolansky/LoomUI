@@ -4,12 +4,14 @@ A VSCode extension for working with the [Loom](../Loom) runtime: a side-panel mo
 
 ## Features
 
-- **Modules side panel** — live tree of loaded modules grouped by state (Running / Initialized / Loaded / Error / …) with per-module cycle time and overrun count. Expand a module to peek at its `config`, `recipe`, `runtime`, or `summary` JSON.
+- **Modules side panel** — tree of loaded modules grouped by state (Running / Initialized / Loaded / Error / …) with per-module cycle time and overrun count, refreshed live over WebSocket. Expand a module to peek at its `config`, `recipe`, `runtime`, or `summary` JSON.
+- **Scheduler side panel** — scheduler classes with period, priority, last cycle time, and tick count; expand a class to see its assigned modules.
+- **Bus side panel** — registered RPC services and active pub/sub topics. Click a service to call it with a JSON request body.
 - **Runtime lifecycle** — start, stop, restart, or attach to the `loom` binary directly from the activity bar; output streams to a `Loom Runtime` channel. Status bar shows connection state and toggles on click.
 - **Native debug** — `Loom: Debug Runtime (Native)` launches the binary under CodeLLDB or the Microsoft C/C++ debugger so you can hit breakpoints in module code.
-- **Live module debugging** — context-menu actions to reload modules, save/load config, instantiate from `.so` files, and call bus services with a JSON request body.
+- **Live module debugging** — context-menu actions to reload modules, save/load config, instantiate from `.so` files, and call bus services.
 
-> Live WebSocket updates, the scheduler/bus tree views, and an editable module-detail webview are planned for subsequent phases (see [Roadmap](#roadmap)).
+> An editable module-detail webview, oscilloscope probes, and IO mappings are planned for subsequent phases (see [Roadmap](#roadmap)).
 
 ## Requirements
 
@@ -56,7 +58,7 @@ Override any setting in your User or Workspace settings to point elsewhere — e
 | `loom.port` | `8080` | Port the runtime binds to when started by the extension. |
 | `loom.bindAddress` | `0.0.0.0` | Address the runtime binds to. |
 | `loom.debugAdapter` | `lldb` | `lldb` (CodeLLDB) or `cppdbg` (Microsoft C/C++). |
-| `loom.pollIntervalMs` | `5000` | REST poll interval until WebSocket live updates land in Phase 2. |
+| `loom.pollIntervalMs` | `5000` | REST poll cadence for the module list (also throttles scheduler/bus polls to 2× this). Live cycle stats arrive over WebSocket between polls. |
 
 ## Commands
 
@@ -81,8 +83,8 @@ All commands are available from the palette under the `Loom:` prefix.
 
 ## Roadmap
 
-- **Phase 1 (current)** — REST-driven Modules tree, runtime lifecycle, native debug, live debug commands.
-- **Phase 2** — WebSocket live updates, Scheduler & Bus tree views.
+- **Phase 1** — REST-driven Modules tree, runtime lifecycle, native debug, live debug commands. ✓
+- **Phase 2 (current)** — WebSocket live updates, Scheduler & Bus tree views.
 - **Phase 3** — Editable module-detail webview for `config`/`recipe`/`runtime`/`summary`.
 - **Phase 4** — Oscilloscope probes, IO mappings, recipe browser.
 

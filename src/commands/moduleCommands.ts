@@ -142,7 +142,7 @@ export function registerModuleCommands(
       }
     }),
 
-    vscode.commands.registerCommand('loom.bus.callService', async () => {
+    vscode.commands.registerCommand('loom.bus.callService', async (preselect?: string) => {
       let services;
       try {
         services = await client.getBusServices();
@@ -154,14 +154,20 @@ export function registerModuleCommands(
         vscode.window.showInformationMessage('No bus services registered.');
         return;
       }
-      const pick = await vscode.window.showQuickPick(
-        services.map((s) => ({ label: s.name, description: s.schema ? 'typed' : 'raw', svc: s })),
-        { placeHolder: 'Select a service to call' },
-      );
-      if (!pick) return;
-      const initial = pick.svc.schema ? schemaPlaceholder(pick.svc.schema) : '{}';
+
+      let svc = preselect ? services.find((s) => s.name === preselect) : undefined;
+      if (!svc) {
+        const pick = await vscode.window.showQuickPick(
+          services.map((s) => ({ label: s.name, description: s.schema ? 'typed' : 'raw', svc: s })),
+          { placeHolder: 'Select a service to call' },
+        );
+        if (!pick) return;
+        svc = pick.svc;
+      }
+
+      const initial = svc.schema ? schemaPlaceholder(svc.schema) : '{}';
       const body = await vscode.window.showInputBox({
-        prompt: `Request JSON for ${pick.svc.name}`,
+        prompt: `Request JSON for ${svc.name}`,
         value: initial,
         validateInput: (v) => {
           try { JSON.parse(v); return null; } catch { return 'Must be valid JSON'; }
@@ -169,9 +175,9 @@ export function registerModuleCommands(
       });
       if (!body) return;
       try {
-        const res = await client.callBusService(pick.svc.name, body);
+        const res = await client.callBusService(svc.name, body);
         out.show(true);
-        out.appendLine(`→ ${pick.svc.name} ${body}`);
+        out.appendLine(`→ ${svc.name} ${body}`);
         out.appendLine(`← ${JSON.stringify(res)}`);
       } catch (e) {
         vscode.window.showErrorMessage(`Call failed: ${(e as Error).message}`);
