@@ -51,7 +51,7 @@ export function activate(context: vscode.ExtensionContext): void {
   registerModuleCommands(context, client, live, modulesProvider);
   registerSchedulerCommands(context, client, schedulerProvider);
   registerMappingCommands(context, client, mappingsProvider);
-  registerDebugCommands(context);
+  registerDebugCommands(context, runtime);
 
   // --- DAP-based module inspector ---
   const inspectorFactory = new LoomDebugAdapterFactory(client, live);

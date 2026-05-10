@@ -13,6 +13,12 @@ export class RuntimeProcess implements vscode.Disposable {
     return this.child !== null && this.child.exitCode === null && !this.child.killed;
   }
 
+  /** OS process id of the spawned loom binary, when running. Used by the
+   *  attach-debugger command to skip the process picker. */
+  get pid(): number | undefined {
+    return this.running ? this.child?.pid : undefined;
+  }
+
   async start(): Promise<void> {
     if (this.running) {
       vscode.window.showInformationMessage('Loom runtime is already running.');

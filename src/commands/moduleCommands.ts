@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
 import * as path from 'path';
 import type { LoomClient } from '../api/client';
 import type { LiveStream } from '../api/liveStream';
@@ -7,6 +8,7 @@ import type { ModulesProvider } from '../views/modulesView';
 import { ModuleNode } from '../views/modulesView';
 import { getExtensionOutput } from '../util/output';
 import { ManagementPanel } from '../webview/managementPanel';
+import { resolvePaths } from '../util/paths';
 
 export function registerModuleCommands(
   context: vscode.ExtensionContext,
@@ -43,6 +45,69 @@ export function registerModuleCommands(
       // Hand off to the DAP-based inspector which exposes all modules in
       // VSCode's standard Variables view.
       await vscode.commands.executeCommand('loom.modules.inspect', id);
+    }),
+
+    vscode.commands.registerCommand('loom.modules.openSource', async (idOrNode: unknown) => {
+      const id = await withModuleId(idOrNode, 'Open module source');
+      if (!id) return;
+
+      let detail;
+      try {
+        detail = await client.getModule(id);
+      } catch (e) {
+        vscode.window.showErrorMessage(`Cannot fetch module: ${(e as Error).message}`);
+        return;
+      }
+
+      const soName = path.basename(detail.path).replace(/\.(so|dylib|dll)$/i, '');
+      const { repoPath } = resolvePaths();
+      const moduleDir = path.join(repoPath, 'modules', soName);
+      if (!fsSync.existsSync(moduleDir)) {
+        vscode.window.showWarningMessage(
+          `Source directory not found at ${moduleDir}. Set 'loom.repoPath' or open the file manually.`,
+        );
+        return;
+      }
+
+      let cppFiles: string[];
+      try {
+        const entries = await fs.readdir(moduleDir);
+        cppFiles = entries.filter((f) => f.endsWith('.cpp')).map((f) => path.join(moduleDir, f));
+      } catch (e) {
+        vscode.window.showErrorMessage(`Cannot read ${moduleDir}: ${(e as Error).message}`);
+        return;
+      }
+
+      if (cppFiles.length === 0) {
+        vscode.window.showWarningMessage(`No .cpp files in ${moduleDir}.`);
+        return;
+      }
+
+      let target: string;
+      if (cppFiles.length === 1) {
+        target = cppFiles[0];
+      } else {
+        // Prefer one whose basename matches the .so name; otherwise let the user pick.
+        const exact = cppFiles.find((p) => path.basename(p, '.cpp') === soName);
+        if (exact) {
+          target = exact;
+        } else {
+          const pick = await vscode.window.showQuickPick(
+            cppFiles.map((p) => ({
+              label: path.basename(p),
+              description: path.relative(repoPath, p),
+              file: p,
+            })),
+            { placeHolder: `Pick source file for ${id}` },
+          );
+          if (!pick) return;
+          target = pick.file;
+        }
+      }
+
+      const doc = await vscode.workspace.openTextDocument(target);
+      await vscode.window.showTextDocument(doc);
+      out.appendLine(`Opened ${path.relative(repoPath, target)} for module ${id}.`);
     }),
 
     vscode.commands.registerCommand('loom.modules.reload', async (node: unknown) => {

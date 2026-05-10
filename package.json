@@ -65,6 +65,16 @@
         "icon": "$(debug-alt)"
       },
       {
+        "command": "loom.runtime.attach",
+        "title": "Loom: Attach Native Debugger",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "command": "loom.modules.openSource",
+        "title": "Loom: Open Module Source",
+        "icon": "$(go-to-file)"
+      },
+      {
         "command": "loom.runtime.toggle",
         "title": "Loom: Toggle Runtime"
       },
@@ -88,8 +98,8 @@
       },
       {
         "command": "loom.modules.inspect",
-        "title": "Loom: Inspect Modules (Debug Session)",
-        "icon": "$(debug-alt-small)"
+        "title": "Loom: Watch Modules (Variables View)",
+        "icon": "$(search)"
       },
       {
         "command": "loom.modules.inspect.refresh",
@@ -209,9 +219,14 @@
           "group": "navigation@3"
         },
         {
-          "command": "loom.modules.inspect",
+          "command": "loom.runtime.attach",
           "when": "view == loom.modules",
           "group": "navigation@4"
+        },
+        {
+          "command": "loom.modules.inspect",
+          "when": "view == loom.modules",
+          "group": "navigation@5"
         },
         {
           "command": "loom.modules.refresh",
@@ -252,6 +267,11 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "loom.modules.openSource",
+          "when": "view == loom.modules && viewItem == module",
+          "group": "0_open@1"
+        },
         {
           "command": "loom.modules.reload",
           "when": "view == loom.modules && viewItem == module",
