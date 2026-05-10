@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import type { LoomClient } from '../api/client';
 import type { ModulesProvider } from '../views/modulesView';
 import { ModuleNode } from '../views/modulesView';
-import type { DataSection } from '../api/types';
 import { getExtensionOutput } from '../util/output';
 
 export function registerModuleCommands(
@@ -33,21 +32,12 @@ export function registerModuleCommands(
   }
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('loom.modules.openDetail', async (idOrNode: unknown, section?: DataSection) => {
-      const id = await withModuleId(idOrNode, 'Open module detail');
+    vscode.commands.registerCommand('loom.modules.openDetail', async (idOrNode: unknown) => {
+      const id = await withModuleId(idOrNode, 'Inspect module');
       if (!id) return;
-      try {
-        const detail = await client.getModule(id);
-        const sec: DataSection = section ?? 'config';
-        const doc = await vscode.workspace.openTextDocument({
-          language: 'json',
-          content: JSON.stringify(detail.data[sec], null, 2),
-        });
-        await vscode.window.showTextDocument(doc, { preview: true });
-        out.appendLine(`Opened ${id}/${sec} (read-only preview — editable detail webview lands in Phase 3).`);
-      } catch (e) {
-        vscode.window.showErrorMessage(`Failed to fetch module: ${(e as Error).message}`);
-      }
+      // Hand off to the DAP-based inspector which exposes all modules in
+      // VSCode's standard Variables view.
+      await vscode.commands.executeCommand('loom.modules.inspect', id);
     }),
 
     vscode.commands.registerCommand('loom.modules.reload', async (node: unknown) => {

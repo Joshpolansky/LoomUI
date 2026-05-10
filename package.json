@@ -11,14 +11,7 @@
     "Other",
     "Debuggers"
   ],
-  "activationEvents": [
-    "onView:loom.modules",
-    "onView:loom.scheduler",
-    "onView:loom.bus",
-    "onCommand:loom.runtime.start",
-    "onCommand:loom.runtime.debug",
-    "onCommand:loom.runtime.connect"
-  ],
+  "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
     "viewsContainers": {
@@ -82,7 +75,21 @@
       },
       {
         "command": "loom.modules.openDetail",
-        "title": "Loom: Open Module Detail"
+        "title": "Loom: Inspect Module in Variables View"
+      },
+      {
+        "command": "loom.modules.inspect",
+        "title": "Loom: Inspect Modules (Debug Session)",
+        "icon": "$(debug-alt-small)"
+      },
+      {
+        "command": "loom.modules.inspect.refresh",
+        "title": "Loom: Refresh Inspector",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "loom.modules.setValue",
+        "title": "Loom: Set Value..."
       },
       {
         "command": "loom.modules.instantiate",
@@ -139,9 +146,21 @@
           "group": "navigation@3"
         },
         {
+          "command": "loom.modules.inspect",
+          "when": "view == loom.modules",
+          "group": "navigation@4"
+        },
+        {
           "command": "loom.modules.refresh",
           "when": "view == loom.modules",
           "group": "navigation@9"
+        }
+      ],
+      "debug/variables/context": [
+        {
+          "command": "loom.modules.setValue",
+          "when": "debugType == 'loom'",
+          "group": "1_modify@1"
         }
       ],
       "view/item/context": [
@@ -179,9 +198,50 @@
         {
           "command": "loom.modules.openDetail",
           "when": "false"
+        },
+        {
+          "command": "loom.modules.setValue",
+          "when": "false"
         }
       ]
     },
+    "breakpoints": [],
+    "debuggers": [
+      {
+        "type": "loom",
+        "label": "Loom: Inspect Modules",
+        "languages": [],
+        "configurationAttributes": {
+          "attach": {
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "Loom server URL. Defaults to the loom.serverUrl setting.",
+                "default": "http://localhost:8080"
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "loom",
+            "request": "attach",
+            "name": "Loom: Inspect Modules"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "Loom: Attach to running runtime",
+            "description": "Attach to a running Loom runtime and surface modules in the Variables view.",
+            "body": {
+              "type": "loom",
+              "request": "attach",
+              "name": "Loom: Inspect Modules"
+            }
+          }
+        ]
+      }
+    ],
     "configuration": {
       "title": "Loom",
       "properties": {
@@ -251,6 +311,8 @@
     "typescript": "^5.5.0"
   },
   "dependencies": {
+    "@vscode/debugadapter": "^1.68.0",
+    "@vscode/debugprotocol": "^1.68.0",
     "ws": "^8.20.0"
   }
 }

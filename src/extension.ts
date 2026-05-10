@@ -8,6 +8,12 @@ import { RuntimeProcess } from './runtime/runtimeProcess';
 import { registerRuntimeCommands } from './commands/runtimeCommands';
 import { registerModuleCommands } from './commands/moduleCommands';
 import { registerDebugCommands } from './commands/debugCommands';
+import {
+  LoomDebugAdapterFactory,
+  LoomDebugConfigurationProvider,
+  LOOM_DEBUG_TYPE,
+} from './debugAdapter/factory';
+import { decodeEvalName, parseValue } from './util/jsonValue';
 import { serverUrl, port as cfgPort } from './util/paths';
 import { disposeOutputs, getExtensionOutput } from './util/output';
 
@@ -31,6 +37,64 @@ export function activate(context: vscode.ExtensionContext): void {
   registerRuntimeCommands(context, runtime, modulesProvider);
   registerModuleCommands(context, client, modulesProvider);
   registerDebugCommands(context);
+
+  // --- DAP-based module inspector ---
+  const inspectorFactory = new LoomDebugAdapterFactory(client, live);
+  context.subscriptions.push(
+    vscode.debug.registerDebugAdapterDescriptorFactory(LOOM_DEBUG_TYPE, inspectorFactory),
+    vscode.debug.registerDebugConfigurationProvider(
+      LOOM_DEBUG_TYPE,
+      new LoomDebugConfigurationProvider(),
+    ),
+    vscode.commands.registerCommand('loom.modules.inspect', async () => {
+      const existing = vscode.debug.activeDebugSession;
+      if (existing && existing.type === LOOM_DEBUG_TYPE) {
+        await vscode.commands.executeCommand('workbench.view.debug');
+        return;
+      }
+      await vscode.debug.startDebugging(
+        vscode.workspace.workspaceFolders?.[0],
+        {
+          type: LOOM_DEBUG_TYPE,
+          request: 'attach',
+          name: 'Loom: Inspect Modules',
+        },
+      );
+      await vscode.commands.executeCommand('workbench.view.debug');
+    }),
+    vscode.commands.registerCommand('loom.modules.inspect.refresh', () => {
+      inspectorFactory.refreshAll();
+    }),
+    vscode.commands.registerCommand('loom.modules.setValue', async (arg: unknown) => {
+      // VSCode passes context-menu args from `debug/variables/context` as
+      // `{ variable: DebugProtocol.Variable, container?, sessionId }`.
+      const variable = (arg as { variable?: { name?: string; value?: string; evaluateName?: string } } | undefined)?.variable;
+      const desc = decodeEvalName(variable?.evaluateName);
+      if (!desc) {
+        vscode.window.showInformationMessage('This variable is not editable from the Loom inspector.');
+        return;
+      }
+      const fieldName = [desc.section, ...desc.path].join('.');
+      const next = await vscode.window.showInputBox({
+        prompt: `Set ${desc.moduleId}.${fieldName}`,
+        value: variable?.value ?? '',
+        placeHolder: 'number, "string", true, false, null, or JSON literal',
+        validateInput: (v) => {
+          if (v === '') return null;
+          const r = parseValue(v);
+          return r.ok ? null : r.error;
+        },
+      });
+      if (next === undefined || next === '') return;
+      const parsed = parseValue(next);
+      if (!parsed.ok) return; // already validated, but keep TS happy
+      try {
+        await inspectorFactory.applyEdit(desc.moduleId, desc.section, desc.path, parsed.value);
+      } catch (e) {
+        vscode.window.showErrorMessage(`Set failed: ${(e as Error).message}`);
+      }
+    }),
+  );
 
   // --- status bar ---
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
