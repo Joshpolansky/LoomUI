@@ -139,10 +139,58 @@ export async function installLoomRuntime(context: vscode.ExtensionContext): Prom
     await cfg.update('dataDir', userDataDir, target);
   }
 
+  // 10. Register the install with CMake's user package registry so module
+  //     projects can `find_package(loom CONFIG REQUIRED)` without any
+  //     CMAKE_PREFIX_PATH or env-var setup.
+  const cmakePrefix = path.dirname(path.dirname(binary)); // strip /bin/loom
+  try {
+    const where = await registerCmakePackage(cmakePrefix);
+    if (where) out.appendLine(`  registered with CMake at ${where}`);
+  } catch (e) {
+    out.appendLine(`  warning: failed to register with CMake user package registry: ${(e as Error).message}`);
+  }
+
   out.appendLine(`✓ Installed Loom ${release.tag_name}.`);
   vscode.window.showInformationMessage(
     `Installed Loom ${release.tag_name}. You can now run "Loom: Start Runtime".`,
   );
+}
+
+/** Write a CMake user package registry entry pointing at this install's
+ *  loom-config.cmake. After this, any CMake project on this user's
+ *  machine that does `find_package(loom CONFIG REQUIRED)` will find the
+ *  SDK shipped in the binary release — no CMAKE_PREFIX_PATH, no env vars.
+ *
+ *  POSIX: writes `~/.cmake/packages/loom/loomui` containing the absolute
+ *  path to <install>/lib/cmake/loom/.
+ *  Windows: writes HKCU\Software\Kitware\CMake\Packages\loom\loomui via
+ *  reg.exe with the same path as the value's data.
+ *
+ *  Returns the location of the registry entry, or undefined if the
+ *  install's CMake config dir doesn't exist (older release that didn't
+ *  bundle SDK headers, etc.). */
+async function registerCmakePackage(installRoot: string): Promise<string | undefined> {
+  const configDir = path.join(installRoot, 'lib', 'cmake', 'loom');
+  if (!fsSync.existsSync(configDir)) return undefined;
+
+  if (process.platform === 'win32') {
+    // CMake reads HKEY_CURRENT_USER\Software\Kitware\CMake\Packages\<name>.
+    // Each value's data is an absolute path to a dir containing
+    // <name>Config.cmake. Value name can be anything; we use "loomui" so
+    // reinstalls overwrite the same entry instead of accumulating.
+    const key = 'HKCU\\Software\\Kitware\\CMake\\Packages\\loom';
+    await exec(`reg add "${key}" /v "loomui" /t REG_SZ /d "${configDir}" /f`);
+    return `${key}\\loomui`;
+  }
+
+  // POSIX: each file under ~/.cmake/packages/<name>/ contains a path that
+  // CMake adds to its search list. Filename is arbitrary; using "loomui"
+  // (instead of a random hash) means reinstalls cleanly overwrite.
+  const registryDir = path.join(os.homedir(), '.cmake', 'packages', 'loom');
+  await fs.mkdir(registryDir, { recursive: true });
+  const entryPath = path.join(registryDir, 'loomui');
+  await fs.writeFile(entryPath, configDir, 'utf8');
+  return entryPath;
 }
 
 // ---------- helpers ----------
