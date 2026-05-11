@@ -142,12 +142,23 @@ export async function installLoomRuntime(context: vscode.ExtensionContext): Prom
   // 10. Register the install with CMake's user package registry so module
   //     projects can `find_package(loom CONFIG REQUIRED)` without any
   //     CMAKE_PREFIX_PATH or env-var setup.
-  const cmakePrefix = path.dirname(path.dirname(binary)); // strip /bin/loom
-  try {
-    const where = await registerCmakePackage(cmakePrefix);
-    if (where) out.appendLine(`  registered with CMake at ${where}`);
-  } catch (e) {
-    out.appendLine(`  warning: failed to register with CMake user package registry: ${(e as Error).message}`);
+  //
+  //     Compute the install prefix from where the binary actually lives:
+  //       <install>/loom              -> prefix = dirname(binary)
+  //       <install>/bin/loom          -> prefix = dirname(dirname(binary))
+  const binParent = path.dirname(binary);
+  const cmakePrefix = path.basename(binParent) === 'bin' ? path.dirname(binParent) : binParent;
+  const configDir = path.join(cmakePrefix, 'lib', 'cmake', 'loom');
+  if (fsSync.existsSync(configDir)) {
+    try {
+      const where = await registerCmakePackage(configDir);
+      out.appendLine(`  registered with CMake at ${where}`);
+    } catch (e) {
+      out.appendLine(`  warning: failed to register with CMake user package registry: ${(e as Error).message}`);
+    }
+  } else {
+    out.appendLine(`  skipped CMake user package registry: no lib/cmake/loom in this release`);
+    out.appendLine(`    (cut a Loom release with the SDK bundling workflow to enable find_package(loom))`);
   }
 
   out.appendLine(`✓ Installed Loom ${release.tag_name}.`);
@@ -157,22 +168,17 @@ export async function installLoomRuntime(context: vscode.ExtensionContext): Prom
 }
 
 /** Write a CMake user package registry entry pointing at this install's
- *  loom-config.cmake. After this, any CMake project on this user's
+ *  loomConfig.cmake. After this, any CMake project on this user's
  *  machine that does `find_package(loom CONFIG REQUIRED)` will find the
  *  SDK shipped in the binary release — no CMAKE_PREFIX_PATH, no env vars.
  *
  *  POSIX: writes `~/.cmake/packages/loom/loomui` containing the absolute
- *  path to <install>/lib/cmake/loom/.
+ *  path to configDir.
  *  Windows: writes HKCU\Software\Kitware\CMake\Packages\loom\loomui via
  *  reg.exe with the same path as the value's data.
  *
- *  Returns the location of the registry entry, or undefined if the
- *  install's CMake config dir doesn't exist (older release that didn't
- *  bundle SDK headers, etc.). */
-async function registerCmakePackage(installRoot: string): Promise<string | undefined> {
-  const configDir = path.join(installRoot, 'lib', 'cmake', 'loom');
-  if (!fsSync.existsSync(configDir)) return undefined;
-
+ *  Returns the location of the registry entry. */
+async function registerCmakePackage(configDir: string): Promise<string> {
   if (process.platform === 'win32') {
     // CMake reads HKEY_CURRENT_USER\Software\Kitware\CMake\Packages\<name>.
     // Each value's data is an absolute path to a dir containing
