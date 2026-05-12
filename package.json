@@ -3,7 +3,26 @@
   "displayName": "Loom",
   "description": "Side-panel UI and debug commands for the Loom runtime.",
   "version": "0.1.0",
-  "publisher": "loom",
+  "publisher": "ajoshp",
+  "preview": true,
+  "license": "Apache-2.0",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Joshpolansky/LoomUI.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Joshpolansky/LoomUI/issues"
+  },
+  "homepage": "https://github.com/Joshpolansky/LoomUI#readme",
+  "keywords": [
+    "loom",
+    "plc",
+    "automation",
+    "control-systems",
+    "realtime",
+    "embedded"
+  ],
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -27,19 +46,23 @@
       "loom": [
         {
           "id": "loom.modules",
-          "name": "Modules"
+          "name": "Modules",
+          "icon": "media/loom.svg"
         },
         {
           "id": "loom.scheduler",
-          "name": "Scheduler"
+          "name": "Scheduler",
+          "icon": "media/loom.svg"
         },
         {
           "id": "loom.bus",
-          "name": "Bus"
+          "name": "Bus",
+          "icon": "media/loom.svg"
         },
         {
           "id": "loom.mappings",
-          "name": "I/O Mappings"
+          "name": "I/O Mappings",
+          "icon": "media/loom.svg"
         }
       ]
     },
@@ -413,15 +436,20 @@
           "default": "",
           "description": "Path to the loom binary. Set this directly, run \"Loom: Install Loom Runtime\" to download a release, or set loom.repoPath to derive from a source checkout. Supports ${workspaceFolder}."
         },
-        "loom.moduleDir": {
+        "loom.userModuleDir": {
+          "type": "string",
+          "default": "${workspaceFolder}/output/modules",
+          "description": "User module directory — built/uploaded modules live here. Defaults to a workspace-local output/modules; the 'New Module Project' template pins this in .vscode/settings.json. Skipped when no workspace is open."
+        },
+        "loom.systemModuleDir": {
           "type": "string",
           "default": "",
-          "description": "Module .so / .dylib directory. Falls back to ${loom.repoPath}/output/modules if loom.repoPath is set."
+          "description": "System / example module directory bundled with the Loom release. Set automatically by 'Loom: Install Loom Runtime'."
         },
         "loom.dataDir": {
           "type": "string",
-          "default": "",
-          "description": "Config/recipe persistence directory. Falls back to ${loom.repoPath}/data when loom.repoPath is set, otherwise to ~/.loom/data."
+          "default": "${workspaceFolder}/data",
+          "description": "Config/recipe/instances persistence directory. Defaults to workspace-local data/ via ${workspaceFolder}. Falls back to ${loom.repoPath}/data when loom.repoPath is set, then to ~/.loom/data when no workspace is open."
         },
         "loom.releaseRepo": {
           "type": "string",
@@ -440,8 +468,8 @@
         },
         "loom.bindAddress": {
           "type": "string",
-          "default": "0.0.0.0",
-          "description": "Address the runtime should bind to."
+          "default": "127.0.0.1",
+          "description": "Address the runtime should bind to. Default 127.0.0.1 keeps the HTTP/WebSocket API reachable only from the local machine; set 0.0.0.0 to expose it on the LAN."
         },
         "loom.debugAdapter": {
           "type": "string",

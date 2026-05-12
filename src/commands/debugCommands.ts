@@ -49,25 +49,24 @@ async function debugRuntime(): Promise<void> {
   const runtimeExecutable = await requireRuntimeExecutable();
   if (!runtimeExecutable) return;
 
-  const { moduleDir, dataDir, repoPath } = resolvePaths();
-  if (!moduleDir) {
+  const { moduleDirs, dataDir, repoPath } = resolvePaths();
+  if (moduleDirs.length === 0) {
     vscode.window.showErrorMessage(
-      'No module directory configured. Set loom.moduleDir or run "Loom: Install Loom Runtime".',
+      'No module directory found. Open a project workspace, set loom.userModuleDir, or run "Loom: Install Loom Runtime".',
     );
     return;
   }
 
   if (!(await ensureAdapter(adapter))) return;
 
-  const effectiveDataDir = dataDir || `${os.homedir()}/.loom/data`;
-  const cwd = repoPath || os.homedir();
+  const workspaceDir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const cwd = workspaceDir || repoPath || os.homedir();
 
-  const args = [
-    '--module-dir', moduleDir,
-    '--data-dir',   effectiveDataDir,
-    '--port',       String(cfgPort()),
-    '--bind',       cfgBind(),
-  ];
+  const args: string[] = [];
+  for (const dir of moduleDirs) args.push('--module-dir', dir);
+  args.push('--data-dir', dataDir);
+  args.push('--port',     String(cfgPort()));
+  args.push('--bind',     cfgBind());
 
   const config: vscode.DebugConfiguration = adapter === 'lldb'
     ? {

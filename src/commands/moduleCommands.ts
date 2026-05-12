@@ -59,12 +59,27 @@ export function registerModuleCommands(
         return;
       }
 
+      // Fast path: the module's LOOM_MODULE_HEADER captured __FILE__ at build
+      // time. If the path resolves on this machine, jump straight to it.
+      if (detail.sourceFile && fsSync.existsSync(detail.sourceFile)) {
+        const doc = await vscode.workspace.openTextDocument(detail.sourceFile);
+        await vscode.window.showTextDocument(doc);
+        out.appendLine(`Opened ${detail.sourceFile} for module ${id}.`);
+        return;
+      }
+
+      // Fallback: scan ${repoPath}/modules/<soName>/ for .cpp files. Only
+      // works for modules built before sourceFile was added, or when the
+      // build mapped __FILE__ to a virtual path. Improved heuristics live
+      // in the open-source roadmap.
       const soName = path.basename(detail.path).replace(/\.(so|dylib|dll)$/i, '');
       const { repoPath } = resolvePaths();
       const moduleDir = path.join(repoPath, 'modules', soName);
       if (!fsSync.existsSync(moduleDir)) {
         vscode.window.showWarningMessage(
-          `Source directory not found at ${moduleDir}. Set 'loom.repoPath' or open the file manually.`,
+          `Source for ${id} not found.` +
+          (detail.sourceFile ? ` Build path '${detail.sourceFile}' does not exist on this machine.` : '') +
+          ` Rebuild the module against the current Loom SDK, or set 'loom.repoPath'.`,
         );
         return;
       }

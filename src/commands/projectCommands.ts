@@ -41,19 +41,23 @@ async function newModuleProject(): Promise<void> {
   const className = snakeToCamel(snakeName.trim());
 
   await fs.mkdir(projectDir, { recursive: true });
-  await fs.mkdir(path.join(projectDir, '.vscode'), { recursive: true });
+  await fs.mkdir(path.join(projectDir, '.vscode'),       { recursive: true });
+  await fs.mkdir(path.join(projectDir, 'data'),          { recursive: true });
+  await fs.mkdir(path.join(projectDir, 'output', 'modules'), { recursive: true });
 
   await Promise.all([
-    fs.writeFile(path.join(projectDir, 'CMakeLists.txt'),     CMAKELISTS_TPL(snakeName, className)),
-    fs.writeFile(path.join(projectDir, `${snakeName}.hpp`),   HPP_TPL(className)),
-    fs.writeFile(path.join(projectDir, `${snakeName}.cpp`),   CPP_TPL(snakeName, className)),
-    fs.writeFile(path.join(projectDir, '.vscode/tasks.json'),  TASKS_TPL),
-    fs.writeFile(path.join(projectDir, '.vscode/launch.json'), LAUNCH_TPL),
-    fs.writeFile(path.join(projectDir, '.gitignore'),          GITIGNORE_TPL),
-    fs.writeFile(path.join(projectDir, 'README.md'),           README_TPL(snakeName, className)),
+    fs.writeFile(path.join(projectDir, 'CMakeLists.txt'),          CMAKELISTS_TPL(snakeName, className)),
+    fs.writeFile(path.join(projectDir, `${snakeName}.hpp`),        HPP_TPL(className)),
+    fs.writeFile(path.join(projectDir, `${snakeName}.cpp`),        CPP_TPL(snakeName, className)),
+    fs.writeFile(path.join(projectDir, '.vscode/settings.json'),   SETTINGS_TPL),
+    fs.writeFile(path.join(projectDir, '.vscode/tasks.json'),      TASKS_TPL),
+    fs.writeFile(path.join(projectDir, '.vscode/launch.json'),     LAUNCH_TPL),
+    fs.writeFile(path.join(projectDir, '.gitignore'),              GITIGNORE_TPL),
+    fs.writeFile(path.join(projectDir, 'data', '.gitkeep'),        ''),
+    fs.writeFile(path.join(projectDir, 'output', 'modules', '.gitkeep'), ''),
+    fs.writeFile(path.join(projectDir, 'README.md'),               README_TPL(snakeName, className)),
   ]);
 
-  // Ask whether to open in a new window or this one.
   const open = await vscode.window.showInformationMessage(
     `Created '${snakeName}' module project at ${projectDir}.`,
     'Open in New Window',
@@ -89,26 +93,25 @@ find_package(loom CONFIG REQUIRED)
 add_library(${snake} MODULE ${snake}.cpp)
 target_link_libraries(${snake} PRIVATE loom::sdk)
 
-# Loom expects plugins as <name>.so on POSIX, <name>.dll on Windows, with no
-# 'lib' prefix. Strip the prefix and force the right suffix.
+# Loom expects plugins as <name>.so on POSIX, <name>.dll on Windows, with
+# no 'lib' prefix.
 if(WIN32)
     set(LOOM_MODULE_SUFFIX ".dll")
 else()
     set(LOOM_MODULE_SUFFIX ".so")
 endif()
 
+# Build the .so straight into <workspace>/output/modules/. That's where
+# this project's .vscode/settings.json points loom.userModuleDir, so
+# 'Loom: Start Runtime' picks the module up immediately and the runtime's
+# module-watcher hot-reloads on every rebuild. No separate deploy step.
 set_target_properties(${snake} PROPERTIES
     PREFIX ""
     SUFFIX "\${LOOM_MODULE_SUFFIX}"
     CXX_VISIBILITY_PRESET hidden
+    LIBRARY_OUTPUT_DIRECTORY "\${CMAKE_SOURCE_DIR}/output/modules"
 )
 
-# Used by the 'loom: deploy' task to copy the built plugin into the runtime's
-# module directory. \`cmake --install build --prefix <loom-module-dir>\` will
-# install the .so/.dll directly there.
-install(TARGETS ${snake} LIBRARY DESTINATION ".")
-
-# Suppress the trailing comment line warning.
 # Class: ${klass}
 `;
 
@@ -168,6 +171,12 @@ public:
 LOOM_REGISTER_MODULE(${klass}Module)
 `;
 
+const SETTINGS_TPL = `{
+    "loom.userModuleDir": "\${workspaceFolder}/output/modules",
+    "loom.dataDir":       "\${workspaceFolder}/data"
+}
+`;
+
 const TASKS_TPL = `{
     "version": "2.0.0",
     "tasks": [
@@ -193,19 +202,8 @@ const TASKS_TPL = `{
             "group": {
                 "kind": "build",
                 "isDefault": true
-            }
-        },
-        {
-            "label": "loom: deploy",
-            "type": "shell",
-            "command": "cmake",
-            "args": [
-                "--install", "build",
-                "--prefix", "\${config:loom.moduleDir}"
-            ],
-            "dependsOn": "loom: build",
-            "problemMatcher": [],
-            "detail": "Build the module then install it into loom.moduleDir, where the runtime's module-watcher will hot-reload it."
+            },
+            "detail": "Build the module. CMake puts the .so/.dll into output/modules/ which the running Loom watches for hot-reload."
         }
     ]
 }
@@ -219,7 +217,7 @@ const LAUNCH_TPL = `{
             "type": "lldb",
             "request": "attach",
             "pid": "\${command:pickProcess}",
-            "preLaunchTask": "loom: deploy"
+            "preLaunchTask": "loom: build"
         }
     ]
 }
@@ -230,19 +228,41 @@ const GITIGNORE_TPL = `build/
 compile_commands.json
 *.swp
 .DS_Store
+
+# Keep the data/ structure but ignore stuff written by the running runtime.
+# Uncomment if you don't want to commit module configs:
+# data/
 `;
 
 const README_TPL = (snake: string, klass: string) => `# ${snake}
 
 A Loom module plugin generated by the LoomUI extension.
 
-## Build
+## Layout
 
-Two ways:
+\`\`\`
+${snake}/
+  CMakeLists.txt        ← find_package(loom) + builds the .so/.dll
+  ${snake}.hpp          ← Config / Recipe / Runtime POD structs
+  ${snake}.cpp          ← ${klass}Module class
+  output/modules/       ← build lands here; runtime loads from here
+  data/                 ← runtime persistence (configs, recipes, instances.json)
+  .vscode/
+    settings.json       ← pins loom.userModuleDir and loom.dataDir to this workspace
+    tasks.json          ← loom: configure / loom: build
+    launch.json         ← attach-by-pid debug
+\`\`\`
 
-- \`Cmd/Ctrl+Shift+B\` (default build task) — runs \`loom: build\`.
-- Tasks: Run Task… → \`loom: deploy\` — builds, then installs the .so/.dylib
-  into \`loom.moduleDir\` so the runtime hot-reloads it.
+## Build & run
+
+1. \`Cmd/Ctrl+Shift+B\` (default build task) — runs \`loom: build\`. CMake
+   drops the .so/.dll directly into \`output/modules/\`.
+2. In the Loom side panel, click **Start Runtime** (or run \`Loom: Start Runtime\`).
+   LoomUI starts loom with \`--module-dir output/modules --module-dir <install>/modules --data-dir data\`,
+   so your module and the system examples both load.
+3. Edit, save, rebuild — the runtime's module-watcher hot-reloads.
+
+## CMake package resolution
 
 \`find_package(loom)\` resolves automatically because the LoomUI extension
 wrote an entry to CMake's per-user package registry when you installed
@@ -251,17 +271,15 @@ the runtime:
 - macOS / Linux: \`~/.cmake/packages/loom/loomui\`
 - Windows: \`HKCU\\Software\\Kitware\\CMake\\Packages\\loom\\loomui\`
 
-To remove the registration (e.g. after uninstalling Loom), delete that
-file or registry value. CMake also accepts \`LOOM_ROOT\` or
-\`-DCMAKE_PREFIX_PATH=<install>\` if you'd rather pin a specific install.
+To override (e.g. pin a specific install), set \`LOOM_ROOT\` or pass
+\`-DCMAKE_PREFIX_PATH=<install>\` to the configure step.
 
 ## Files
 
 - \`${snake}.hpp\` — the three POD structs (Config / Recipe / Runtime).
-- \`${snake}.cpp\` — the \`${klass}Module\` class with init/cyclic/exit hooks.
-- \`CMakeLists.txt\` — finds the loom SDK, builds a MODULE library named
-  \`${snake}.so\` (or \`.dll\` on Windows), and supplies an install rule that
-  copies the artifact when \`cmake --install\` is invoked.
+- \`${snake}.cpp\` — \`${klass}Module\` with init / cyclic / exit / longRunning hooks.
+- \`CMakeLists.txt\` — finds the loom SDK and builds a MODULE library named
+  \`${snake}.so\` (or \`.dll\` on Windows) directly into \`output/modules/\`.
 
 ## Next steps
 
@@ -269,7 +287,7 @@ file or registry value. CMake also accepts \`LOOM_ROOT\` or
 2. Implement the lifecycle hooks in \`${snake}.cpp\`. See
    [Loom/modules/](https://github.com/Joshpolansky/Loom/tree/main/modules)
    for working examples.
-3. Build and deploy. In the Loom side panel, **Loom: Instantiate Module…**
-   creates a new instance from your freshly built \`.so\`. Subsequent
-   rebuilds will hot-reload via the runtime's module watcher.
+3. Build, start the runtime, and use **Loom: Manage Modules…** in the side
+   panel to instantiate. Subsequent rebuilds hot-reload via the runtime's
+   module watcher.
 `;

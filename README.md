@@ -1,119 +1,89 @@
-# LoomUI
+# Loom for VS Code
 
-A VSCode extension for working with the [Loom](../Loom) runtime: a side-panel module browser, lifecycle commands, and a native debug launcher — all wired to Loom's REST/WebSocket API.
+Build, run, and debug [Loom](https://github.com/Joshpolansky/Loom) modules from VS Code. Scaffold a module project in one command, see every running module's live state in the Variables panel, hit breakpoints in your C++ code with a real debugger, and hot-reload changes without restarting the runtime.
 
-## Features
+## Quick start
 
-- **Modules side panel** — tree of loaded modules grouped by state (Running / Initialized / Loaded / Error / …) with per-module cycle time and overrun count, refreshed live over WebSocket. Click a module to open it in the inspector.
-- **Module Management webview** — `Loom: Manage Modules…` opens a tabbed UI for instance lifecycle: spawn from any available `.so`/`.dylib`, hot-reload, save/load config to disk, remove, or upload a freshly built module. Live cycle stats per row.
-- **Inspect Modules debug session** — `Loom: Inspect Modules` starts a custom debug session that surfaces every module in VSCode's standard **Variables** panel. A single auto-expanded `Modules` scope shows every instance; expanding a module reveals `config`, `recipe`, `runtime`, and `summary` trees. Right-click any editable leaf → `Loom: Set Value…` for a modal edit (avoids the inline-edit / live-tick race). All module details are prefetched on attach so expansion is instant. `summary` is read-only.
-- **Scheduler side panel** — scheduler classes with period, priority, last cycle time, and tick count; expand a class to see its assigned modules.
-- **Bus side panel** — registered RPC services and active pub/sub topics. Click a service to call it with a JSON request body.
-- **Runtime lifecycle** — start, stop, restart, or attach to the `loom` binary directly from the activity bar; output streams to a `Loom Runtime` channel. Status bar shows connection state and toggles on click.
-- **Native debug** — `Loom: Debug Runtime (Native)` launches the binary under CodeLLDB or the Microsoft C/C++ debugger so you can hit breakpoints in module code.
-- **Live module debugging** — context-menu actions to reload modules, save/load config, instantiate from `.so` files, and call bus services.
+1. Install this extension from the Marketplace.
+2. Run **`Loom: Install Loom Runtime…`** — downloads the latest Loom release, configures the extension, and registers the SDK with CMake so `find_package(loom)` just works.
+3. Run **`Loom: New Module Project…`** — pick a folder and a name. You get a complete CMake project with the build task, attach-by-pid debug config, and output paths already wired.
+4. Open the new project, press `Cmd/Ctrl+Shift+B` to build, then click the Loom icon in the activity bar and hit **Start Runtime**. Your module loads automatically.
 
-> Oscilloscope probes and IO mappings are planned for subsequent phases (see [Roadmap](#roadmap)).
+That's it. Edit → save → rebuild — the runtime hot-reloads.
 
-## Requirements
+## Screenshots
 
-- VSCode ≥ 1.90
-- Node 18+ (for development)
-- A built Loom runtime (`Loom/output/loom`) — see [`../Loom/README.md`](../Loom/README.md)
-- One of (only required if you use `Loom: Debug Runtime (Native)`):
-  - [CodeLLDB](https://marketplace.visualstudio.com/items?itemName=vadimcn.vscode-lldb) (default; recommended on macOS)
-  - [Microsoft C/C++](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools)
+**Live module inspection** — the `Loom: Inspect Modules` debug session surfaces every running module as nested variables (config / recipe / runtime / summary) in VS Code's Variables panel.
 
-## Development
+![Live module inspection](media/LiveDebug.png)
 
-```bash
-npm install        # one-time
-npm run build      # bundle to out/extension.js
-npm run watch      # bundle in watch mode
-npm run typecheck  # tsc --noEmit
-```
+**Native debug** — `Loom: Debug Runtime (Native)` launches the runtime under CodeLLDB or Microsoft C/C++ so you can hit breakpoints in your module code while the Loom side panel keeps a live read on modules, scheduler, and bus.
 
-To try the extension, open `LoomUI/` in VSCode and press **F5** — a new Extension Development Host window opens with the Loom icon in the activity bar.
+![Native debug](media/StandardDebug.png)
 
-## Three ways to use it
+## What you get
 
-The extension always works as a **REST/WebSocket client** — `loom.serverUrl` (default `http://localhost:8080`) is the only thing it strictly needs. Beyond that, it can also start, stop, and debug a local loom binary; what's required for those depends on how you got the binary.
+- **Module project scaffold** — `Loom: New Module Project…` creates a CMake project with the SDK pre-wired, build/attach tasks, and `.vscode/settings.json` pointing at the workspace's `output/modules/` so the runtime picks up your builds automatically.
+- **Modules side panel** — every loaded module grouped by state (Running / Initialized / Error / …) with live cycle time and overrun counts streamed over WebSocket. Right-click for reload, remove, save/load config, or jump to source.
+- **Live variable inspection** — `Loom: Inspect Modules` opens a debug session that exposes every module's `config`, `recipe`, `runtime`, and `summary` trees in the Variables panel. Right-click any field → `Set Value…` to edit it without races against the live-tick.
+- **Native C++ debug** — `Loom: Debug Runtime (Native)` or `Loom: Attach Native Debugger` launches/attaches under CodeLLDB or Microsoft C/C++ so you can set breakpoints in your module source.
+- **Scheduler panel** — every scheduler class with period, priority, CPU affinity, and live tick stats. Right-click to retune.
+- **Bus panel** — every RPC service registered by your modules; click to invoke with a JSON body.
+- **Module management** — `Loom: Manage Modules…` opens a tabbed UI for instantiate / hot-reload / save-config / remove / upload across every available `.so`.
 
-### 1. Connect to a running runtime (the simple case)
+## Connecting to a runtime
 
-You have loom running somewhere (locally, on a dev machine, on a real PLC). You only want to inspect modules, watch values, edit recipes, and call services.
+The simplest setup — the install command above — runs the binary on `localhost:8080`. Two other options:
 
-- Set `loom.serverUrl` if the runtime isn't on `http://localhost:8080`.
-- That's it. The Modules / Scheduler / Bus / Mappings views, the `Loom: Inspect Modules` debug session, and the right-click `Set Value…` flow all work.
-- Start / Stop / Debug / Attach commands will prompt to install or configure a binary if you try to use them.
+- **Connect to a remote runtime** (running on another machine, embedded target, or PLC). Set `loom.serverUrl` to its address; the inspect / module / scheduler / bus views all work without a local binary.
+- **Build Loom from source.** Set `loom.repoPath` to your Loom checkout and the extension derives the runtime executable, module dir, and data dir from it.
 
-### 2. Install a Loom binary release (recommended)
+## Native debug
 
-Run **`Loom: Install Loom Runtime…`**. The extension downloads the latest release from `loom.releaseRepo` (default [Joshpolansky/Loom](https://github.com/Joshpolansky/Loom)), extracts it under `${context.globalStorageUri}/runtimes/<tag>/`, and updates `loom.runtimeExecutable` and `loom.moduleDir` automatically. `loom.dataDir` defaults to `~/.loom/data` so reinstalling never touches your recipes/configs.
+Set `loom.debugAdapter` to `lldb` (default, recommended on macOS) or `cppdbg`, then install the matching extension:
 
-After the install:
-- `Loom: Start Runtime` works.
-- `Loom: Debug Runtime (Native)` and `Loom: Attach Native Debugger` work (native debugger extension required — see Requirements).
-- The status bar Loom button is live.
+- [CodeLLDB](https://marketplace.visualstudio.com/items?itemName=vadimcn.vscode-lldb) for `lldb`
+- [Microsoft C/C++](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools) for `cppdbg`
 
-You can re-run install at any point to upgrade.
-
-### 3. Build from source (module developers)
-
-You have the [Loom](https://github.com/Joshpolansky/Loom) source checked out and built locally.
-
-- Set `loom.repoPath` to your checkout. The extension then derives `loom.runtimeExecutable` (`${repoPath}/output/loom`), `loom.moduleDir` (`${repoPath}/output/modules`), and `loom.dataDir` (`${repoPath}/data`) automatically.
-- Or override any of those individually for non-standard layouts.
-
-## Settings
-
-| Key | Default | Purpose |
-| --- | --- | --- |
-| `loom.serverUrl` | `http://localhost:8080` | REST/WebSocket endpoint of the running runtime. |
-| `loom.repoPath` | *(empty)* | Optional: path to a local Loom source checkout. When set, the runtime / module / data paths default off it. |
-| `loom.runtimeExecutable` | *(empty)* | Path to the `loom` binary. Set directly, or run `Loom: Install Loom Runtime…`, or set `loom.repoPath`. |
-| `loom.moduleDir` | *(empty)* | `.so`/`.dylib` plugin directory. Falls back to `${loom.repoPath}/output/modules`. |
-| `loom.dataDir` | *(empty)* | Config/recipe persistence. Falls back to `${loom.repoPath}/data` or `~/.loom/data`. |
-| `loom.releaseRepo` | `Joshpolansky/Loom` | GitHub repo (`owner/name`) hosting Loom binary releases — used by the install command. |
-| `loom.releaseAssetTemplate` | `loom-{platform}-{arch}.tar.gz` | Release asset name template; `{platform}` is `darwin`/`linux`/`win32`, `{arch}` is `arm64`/`x64`. |
-| `loom.port` | `8080` | Port the runtime binds to when started by the extension. |
-| `loom.bindAddress` | `0.0.0.0` | Address the runtime binds to. |
-| `loom.debugAdapter` | `lldb` | `lldb` (CodeLLDB) or `cppdbg` (Microsoft C/C++). |
-| `loom.pollIntervalMs` | `5000` | REST poll cadence for the module list (also throttles scheduler/bus polls to 2× this). Live cycle stats arrive over WebSocket between polls. |
+`Loom: Debug Runtime (Native)` launches the runtime under the debugger; `Loom: Attach Native Debugger` attaches to a runtime that's already running. Either way, breakpoints in your module's `.cpp` hit normally.
 
 ## Commands
 
-All commands are available from the palette under the `Loom:` prefix.
+All commands are under the `Loom:` palette prefix.
 
-**Runtime**
-- `Loom: Install Loom Runtime…` — download the latest release from `loom.releaseRepo` and configure paths
-- `Loom: Start Runtime`
-- `Loom: Stop Runtime`
-- `Loom: Restart Runtime`
-- `Loom: Debug Runtime (Native)` — launch under lldb/cppdbg
-- `Loom: Attach Native Debugger` — attach lldb/cppdbg to a running loom process
-- `Loom: Connect to Runtime…` — change `serverUrl`
+**Getting set up**
+- `Loom: Install Loom Runtime…` — download the latest release and configure paths
+- `Loom: New Module Project…` — scaffold a new module project
+- `Loom: Connect to Runtime…` — change `loom.serverUrl`
 
-**Modules**
-- `Loom: Manage Modules…` — opens the management webview (instances, available `.so`s, upload)
-- `Loom: Inspect Modules (Debug Session)` — opens the Variables view with every module's data as editable nested variables
-- `Loom: Refresh Modules`
-- `Loom: Instantiate Module…`
-- `Loom: Upload Module…`
-- `Loom: Reload Module` (right-click)
-- `Loom: Remove Module` (right-click)
-- `Loom: Save Module Config` / `Loom: Load Module Config from Disk` (right-click)
+**Runtime lifecycle**
+- `Loom: Start Runtime` / `Loom: Stop Runtime` / `Loom: Restart Runtime`
+- `Loom: Debug Runtime (Native)` — launch under the C/C++ debugger
+- `Loom: Attach Native Debugger` — attach to a running loom process
+
+**Working with modules**
+- `Loom: Manage Modules…` — instantiate, reload, save/load config, upload
+- `Loom: Inspect Modules` — open the live Variables view
+- `Loom: Open Module Source` — jump to the `.cpp` for a module (right-click in tree)
+- `Loom: Instantiate Module…` / `Loom: Upload Module…`
 
 **Bus**
-- `Loom: Call Bus Service…` — pick service, send JSON, response logs to the `Loom` output channel
+- `Loom: Call Bus Service…` — pick a service, send a JSON request, response logs to the `Loom` output channel
 
-## Roadmap
+## Settings
 
-- **Phase 1** — REST-driven Modules tree, runtime lifecycle, native debug, live debug commands. ✓
-- **Phase 2** — WebSocket live updates, Scheduler & Bus tree views. ✓
-- **Phase 3 (current)** — DAP-based module inspector exposing `config`/`recipe`/`runtime`/`summary` as editable variables in VSCode's standard Variables view.
-- **Phase 4** — Oscilloscope probes, IO mappings, recipe browser.
+Most settings are managed for you by the install and scaffold commands. The ones you might touch:
+
+| Key | Default | When to change it |
+| --- | --- | --- |
+| `loom.serverUrl` | `http://localhost:8080` | Pointing at a remote runtime. |
+| `loom.port` | `8080` | Port conflict, or you want a non-default port. |
+| `loom.bindAddress` | `127.0.0.1` | Expose the runtime on the LAN — set to `0.0.0.0`. Default keeps it local-only. |
+| `loom.debugAdapter` | `lldb` | Using Microsoft C/C++ instead of CodeLLDB — set to `cppdbg`. |
+| `loom.repoPath` | *(empty)* | Building Loom from source — set to your checkout. |
+
+Advanced / less common: `loom.runtimeExecutable`, `loom.userModuleDir`, `loom.systemModuleDir`, `loom.dataDir`, `loom.releaseRepo`, `loom.releaseAssetTemplate`, `loom.pollIntervalMs`. See the **Loom** section in VS Code's settings UI for the full reference.
 
 ## License
 
-Same as the Loom project.
+Apache-2.0 — see [LICENSE](LICENSE).

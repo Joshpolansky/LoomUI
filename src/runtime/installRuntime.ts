@@ -127,17 +127,22 @@ export async function installLoomRuntime(context: vscode.ExtensionContext): Prom
     out.appendLine(`  warning: \`${binary} --version\` did not return cleanly: ${(e as Error).message}`);
   }
 
-  // 9. Update settings (Global so it persists across workspaces).
+  // 9. Update settings (Global so they persist across workspaces).
   const target = vscode.ConfigurationTarget.Global;
   await cfg.update('runtimeExecutable', binary, target);
-  if (modules) await cfg.update('moduleDir', modules, target);
-  // Default the data dir to a per-user location separate from the install,
-  // so reinstalling doesn't clobber the user's recipes/configs.
-  if (!cfg.get<string>('dataDir')) {
-    const userDataDir = path.join(os.homedir(), '.loom', 'data');
-    await fs.mkdir(userDataDir, { recursive: true });
-    await cfg.update('dataDir', userDataDir, target);
+  if (modules) await cfg.update('systemModuleDir', modules, target);
+  // Clear any legacy loom.moduleDir override so the new userModuleDir /
+  // systemModuleDir split is the single source of truth going forward.
+  // (No-op if the user never set it.)
+  if (cfg.inspect<string>('moduleDir')?.globalValue) {
+    await cfg.update('moduleDir', undefined, target);
   }
+  // Make sure ~/.loom/data exists as a fallback for when the user starts
+  // the runtime outside any workspace. We don't pin loom.dataDir to it —
+  // the workspace-relative default ${workspaceFolder}/data is preferred
+  // when a project is open.
+  const fallbackDataDir = path.join(os.homedir(), '.loom', 'data');
+  await fs.mkdir(fallbackDataDir, { recursive: true });
 
   // 10. Register the install with CMake's user package registry so module
   //     projects can `find_package(loom CONFIG REQUIRED)` without any

@@ -32,23 +32,28 @@ export class RuntimeProcess implements vscode.Disposable {
     const runtimeExecutable = await requireRuntimeExecutable();
     if (!runtimeExecutable) return;
 
-    const { moduleDir, dataDir, repoPath } = resolvePaths();
-    if (!moduleDir) {
+    const { moduleDirs, dataDir, repoPath } = resolvePaths();
+    if (moduleDirs.length === 0) {
       vscode.window.showErrorMessage(
-        'No module directory configured. Set loom.moduleDir or run "Loom: Install Loom Runtime".',
+        'No module directory found. Open a project workspace (the templated module project pins one), set loom.userModuleDir, or run "Loom: Install Loom Runtime" to populate the system module dir.',
       );
       return;
     }
 
-    const effectiveDataDir = dataDir || `${os.homedir()}/.loom/data`;
-    const cwd = repoPath || os.homedir();
+    const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const cwd = ws || repoPath || os.homedir();
 
-    const args = [
-      '--module-dir', moduleDir,
-      '--data-dir',   effectiveDataDir,
-      '--port',       String(cfgPort()),
-      '--bind',       cfgBind(),
-    ];
+    // Pass each module dir as a separate --module-dir flag. The user dir
+    // comes first; runtimes that aggregate (post-multi-dir support) will
+    // load both, runtimes that overwrite use the last (system) — but on
+    // current loom that's the only flag they need to demo example modules.
+    // The new runtime watches the first dir for hot-reload, which is what
+    // a module developer cares about.
+    const args: string[] = [];
+    for (const dir of moduleDirs) args.push('--module-dir', dir);
+    args.push('--data-dir', dataDir);
+    args.push('--port',     String(cfgPort()));
+    args.push('--bind',     cfgBind());
 
     const out = getRuntimeOutput();
     out.appendLine(`▶ ${runtimeExecutable} ${args.join(' ')}`);

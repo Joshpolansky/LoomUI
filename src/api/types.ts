@@ -15,6 +15,11 @@ export interface ModuleInfo {
   version: string;
   state: number;
   path: string;
+  /** Absolute path of the .cpp the LOOM_MODULE_HEADER macro was invoked from,
+   *  as captured by __FILE__ at module build time. Absent for modules built
+   *  before this field was added, or when the build mapped paths (e.g.
+   *  -ffile-prefix-map). */
+  sourceFile?: string;
   cyclicClass?: string;
   stats?: ModuleStats;
 }
