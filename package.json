@@ -2,7 +2,7 @@
   "name": "loom-workbench",
   "displayName": "Loom Workbench",
   "description": "Side-panel UI and debug commands for the Loom runtime.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "ajoshp",
   "preview": true,
   "license": "Apache-2.0",
@@ -109,6 +109,11 @@
         "command": "loom.runtime.install",
         "title": "Loom: Install Loom Runtime...",
         "icon": "$(cloud-download)"
+      },
+      {
+        "command": "loom.runtime.selectProfile",
+        "title": "Loom: Select Runtime Profile...",
+        "icon": "$(versions)"
       },
       {
         "command": "loom.runtime.uninstall",
@@ -249,6 +254,11 @@
         {
           "command": "loom.runtime.restart",
           "when": "view == loom.modules && loom.runtimeRunning",
+          "group": "navigation@2"
+        },
+        {
+          "command": "loom.runtime.selectProfile",
+          "when": "view == loom.modules",
           "group": "navigation@2"
         },
         {
@@ -441,15 +451,54 @@
           "default": "",
           "description": "Path to the loom binary. Set this directly, run \"Loom: Install Loom Runtime\" to download a release, or set loom.repoPath to derive from a source checkout. Supports ${workspaceFolder}."
         },
+        "loom.runtimeProfile": {
+          "type": "string",
+          "enum": [
+            "debug",
+            "release"
+          ],
+          "default": "debug",
+          "description": "Active runtime profile used for executable/module directory resolution. Use 'Loom: Select Runtime Profile...' to switch quickly."
+        },
+        "loom.runtimeExecutableDebug": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Debug loom binary. Set automatically by 'Loom: Install Loom Runtime'."
+        },
+        "loom.runtimeExecutableRelease": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Release loom binary. Set automatically by 'Loom: Install Loom Runtime'."
+        },
         "loom.userModuleDir": {
           "type": "string",
           "default": "${workspaceFolder}/output/modules",
           "description": "User module directory — built/uploaded modules live here. Defaults to a workspace-local output/modules; the 'New Module Project' template pins this in .vscode/settings.json. Skipped when no workspace is open."
         },
+        "loom.userModuleDirDebug": {
+          "type": "string",
+          "default": "${workspaceFolder}/output/modules/Debug",
+          "description": "Debug user module directory. Checked before loom.userModuleDir when runtimeProfile=debug."
+        },
+        "loom.userModuleDirRelease": {
+          "type": "string",
+          "default": "${workspaceFolder}/output/modules/Release",
+          "description": "Release user module directory. Checked before loom.userModuleDir when runtimeProfile=release."
+        },
         "loom.systemModuleDir": {
           "type": "string",
           "default": "",
           "description": "System / example module directory bundled with the Loom release. Set automatically by 'Loom: Install Loom Runtime'."
+        },
+        "loom.systemModuleDirDebug": {
+          "type": "string",
+          "default": "",
+          "description": "Debug system/example module directory bundled with the Loom release."
+        },
+        "loom.systemModuleDirRelease": {
+          "type": "string",
+          "default": "",
+          "description": "Release system/example module directory bundled with the Loom release."
         },
         "loom.dataDir": {
           "type": "string",
@@ -465,6 +514,16 @@
           "type": "string",
           "default": "loom-{platform}-{arch}.tar.gz",
           "description": "Asset name template for the install command. {platform} expands to darwin/linux/win32 and {arch} to arm64/x64."
+        },
+        "loom.releaseAssetTemplateDebug": {
+          "type": "string",
+          "default": "loom-{platform}-{arch}-debug.tar.gz",
+          "description": "Debug runtime asset template for install. Supports {platform}, {arch}, and {build}."
+        },
+        "loom.releaseAssetTemplateRelease": {
+          "type": "string",
+          "default": "loom-{platform}-{arch}.tar.gz",
+          "description": "Release runtime asset template for install. Supports {platform}, {arch}, and {build}."
         },
         "loom.port": {
           "type": "number",

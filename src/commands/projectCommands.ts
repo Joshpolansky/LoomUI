@@ -101,28 +101,54 @@ else()
     set(LOOM_MODULE_SUFFIX ".so")
 endif()
 
-# Build the .so straight into <workspace>/output/modules/. That's where
-# this project's .vscode/settings.json points loom.userModuleDir, so
-# 'Loom: Start Runtime' picks the module up immediately and the runtime's
-# module-watcher hot-reloads on every rebuild. No separate deploy step.
 set_target_properties(${snake} PROPERTIES
     PREFIX ""
     SUFFIX "\${LOOM_MODULE_SUFFIX}"
     CXX_VISIBILITY_PRESET hidden
-    LIBRARY_OUTPUT_DIRECTORY "\${CMAKE_SOURCE_DIR}/output/modules"
-    RUNTIME_OUTPUT_DIRECTORY "\${CMAKE_SOURCE_DIR}/output/modules"
 )
 
-# Multi-config generators (common on Windows) can otherwise append
-# /Debug, /Release, etc. Keep all configs in output/modules/ so LoomUI's
-# default loom.userModuleDir works consistently.
-foreach(cfg Debug Release RelWithDebInfo MinSizeRel)
-  string(TOUPPER "\${cfg}" cfg_upper)
+# On Windows, Debug and Release builds must go in separate directories to avoid
+# CRT ABI mismatches (the Loom runtime itself is either Debug or Release).
+# RelWithDebInfo and MinSizeRel are release-optimised, so they land in Release/.
+# On other platforms a flat output/modules directory is fine.
+if(WIN32)
+  if(CMAKE_CONFIGURATION_TYPES)
+    # Multi-config generators (Visual Studio, Ninja Multi-Config)
+    foreach(cfg Debug Release RelWithDebInfo MinSizeRel)
+      # Map release-variant configs to the Release slot so the Release runtime
+      # can load them without any profile-selector change.
+      if(cfg STREQUAL "Debug")
+        set(_loom_out_dir "\${CMAKE_SOURCE_DIR}/output/modules/Debug")
+      else()
+        set(_loom_out_dir "\${CMAKE_SOURCE_DIR}/output/modules/Release")
+      endif()
+      string(TOUPPER "\${cfg}" cfg_upper)
+      set_target_properties(${snake} PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY_\${cfg_upper} "\${_loom_out_dir}"
+        RUNTIME_OUTPUT_DIRECTORY_\${cfg_upper} "\${_loom_out_dir}"
+      )
+    endforeach()
+  else()
+    # Single-config generators (Ninja/Unix Makefiles)
+    # Debug -> Debug slot; everything else (Release, RelWithDebInfo, MinSizeRel)
+    # -> Release slot.
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+      set(_loom_out_dir "\${CMAKE_SOURCE_DIR}/output/modules/Debug")
+    else()
+      set(_loom_out_dir "\${CMAKE_SOURCE_DIR}/output/modules/Release")
+    endif()
+    set_target_properties(${snake} PROPERTIES
+      LIBRARY_OUTPUT_DIRECTORY "\${_loom_out_dir}"
+      RUNTIME_OUTPUT_DIRECTORY "\${_loom_out_dir}"
+    )
+  endif()
+else()
+  # Non-Windows: single flat output directory.
   set_target_properties(${snake} PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY_\${cfg_upper} "\${CMAKE_SOURCE_DIR}/output/modules"
-    RUNTIME_OUTPUT_DIRECTORY_\${cfg_upper} "\${CMAKE_SOURCE_DIR}/output/modules"
+    LIBRARY_OUTPUT_DIRECTORY "\${CMAKE_SOURCE_DIR}/output/modules"
+    RUNTIME_OUTPUT_DIRECTORY "\${CMAKE_SOURCE_DIR}/output/modules"
   )
-endforeach()
+endif()
 
 # Class: ${klass}
 `;
@@ -183,9 +209,20 @@ public:
 LOOM_REGISTER_MODULE(${klass}Module)
 `;
 
-const SETTINGS_TPL = `{
-    "loom.userModuleDir": "\${workspaceFolder}/output/modules",
-    "loom.dataDir":       "\${workspaceFolder}/data"
+// On Windows, scaffold with per-profile module dirs (Debug/Release CRT split).
+// On other platforms a single flat directory is sufficient.
+const SETTINGS_TPL = process.platform === 'win32'
+  ? `{
+  "loom.userModuleDirDebug": "\${workspaceFolder}/output/modules/Debug",
+  "loom.userModuleDirRelease": "\${workspaceFolder}/output/modules/Release",
+  "loom.userModuleDir": "\${workspaceFolder}/output/modules",
+  "loom.runtimeProfile": "debug",
+  "loom.dataDir": "\${workspaceFolder}/data"
+}
+`
+  : `{
+  "loom.userModuleDir": "\${workspaceFolder}/output/modules",
+  "loom.dataDir": "\${workspaceFolder}/data"
 }
 `;
 
@@ -215,7 +252,7 @@ const TASKS_TPL = `{
                 "kind": "build",
                 "isDefault": true
             },
-            "detail": "Build the module. CMake puts the .so/.dll into output/modules/ which the running Loom watches for hot-reload."
+            "detail": "Build the module. Artifacts go to output/modules/<Config> and LoomUI chooses by runtime profile."
         }
     ]
 }
@@ -257,22 +294,23 @@ ${snake}/
   CMakeLists.txt        ← find_package(loom) + builds the .so/.dll
   ${snake}.hpp          ← Config / Recipe / Runtime POD structs
   ${snake}.cpp          ← ${klass}Module class
-  output/modules/       ← build lands here; runtime loads from here
+  output/modules/       ← compiler output split by config (Debug/Release/...)
   data/                 ← runtime persistence (configs, recipes, instances.json)
   .vscode/
-    settings.json       ← pins loom.userModuleDir and loom.dataDir to this workspace
+    settings.json       ← pins debug/release module dirs and data dir to this workspace
     tasks.json          ← loom: configure / loom: build
     launch.json         ← attach-by-pid debug
 \`\`\`
 
 ## Build & run
 
-1. \`Cmd/Ctrl+Shift+B\` (default build task) — runs \`loom: build\`. CMake
-   drops the .so/.dll directly into \`output/modules/\`.
-2. In the Loom side panel, click **Start Runtime** (or run \`Loom: Start Runtime\`).
-   LoomUI starts loom with \`--module-dir output/modules --module-dir <install>/modules --data-dir data\`,
-   so your module and the system examples both load.
-3. Edit, save, rebuild — the runtime's module-watcher hot-reloads.
+1. \`Cmd/Ctrl+Shift+B\` (default build task) — runs \`loom: build\`.
+2. Use \`Loom: Select Runtime Profile...\` to switch Debug vs Release runtime.
+3. LoomUI resolves module directories by profile (Debug → \`output/modules/Debug\`, Release → \`output/modules/Release\`).
+4. In the Loom side panel, click **Start Runtime** (or run \`Loom: Start Runtime\`).
+  LoomUI starts loom with profile-aware \`--module-dir\` arguments (user first, then system),
+  so your module and the system examples both load.
+5. Edit, save, rebuild — the runtime's module-watcher hot-reloads.
 
 ## CMake package resolution
 
@@ -291,7 +329,7 @@ To override (e.g. pin a specific install), set \`LOOM_ROOT\` or pass
 - \`${snake}.hpp\` — the three POD structs (Config / Recipe / Runtime).
 - \`${snake}.cpp\` — \`${klass}Module\` with init / cyclic / exit / longRunning hooks.
 - \`CMakeLists.txt\` — finds the loom SDK and builds a MODULE library named
-  \`${snake}.so\` (or \`.dll\` on Windows) directly into \`output/modules/\`.
+  \`${snake}.so\` (or \`.dll\` on Windows) into \`output/modules/<Config>/\`.
 
 ## Next steps
 

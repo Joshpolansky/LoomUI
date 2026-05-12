@@ -18,7 +18,7 @@ import {
   LOOM_DEBUG_TYPE,
 } from './debugAdapter/factory';
 import { decodeEvalName, parseValue } from './util/jsonValue';
-import { serverUrl, port as cfgPort } from './util/paths';
+import { activeRuntimeProfile, serverUrl, port as cfgPort } from './util/paths';
 import { disposeOutputs, getExtensionOutput } from './util/output';
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -119,11 +119,12 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(status);
 
   function updateStatus(running: boolean) {
+    const profile = activeRuntimeProfile() === 'debug' ? 'Debug' : 'Release';
     if (running) {
-      status.text = `$(circle-large-filled) Loom :${cfgPort()}`;
+      status.text = `$(circle-large-filled) Loom ${profile} :${cfgPort()}`;
       status.tooltip = 'Loom runtime is running. Click to stop.';
     } else {
-      status.text = `$(circle-large-outline) Loom`;
+      status.text = `$(circle-large-outline) Loom ${profile}`;
       status.tooltip = 'Loom runtime is stopped. Click to start.';
     }
     status.show();
@@ -157,7 +158,9 @@ export function activate(context: vscode.ExtensionContext): void {
         busProvider.refresh();
         mappingsProvider.refresh();
       }
-      if (e.affectsConfiguration('loom.port')) updateStatus(runtime.running);
+      if (e.affectsConfiguration('loom.port') || e.affectsConfiguration('loom.runtimeProfile')) {
+        updateStatus(runtime.running);
+      }
     }),
   );
 

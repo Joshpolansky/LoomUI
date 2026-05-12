@@ -22,6 +22,14 @@ interface GitHubRelease {
   html_url: string;
 }
 
+type RuntimeFlavor = 'debug' | 'release';
+
+interface InstalledFlavor {
+  flavor: RuntimeFlavor;
+  binary: string;
+  modules?: string;
+}
+
 /** Fetch the latest Loom release from GitHub, download the asset matching
  *  the user's platform/arch, extract it under the extension's globalStorage
  *  directory, and update the loom.runtimeExecutable / loom.moduleDir
@@ -54,83 +62,100 @@ export async function installLoomRuntime(context: vscode.ExtensionContext): Prom
 
   out.appendLine(`  found release ${release.tag_name} with ${release.assets.length} asset(s)`);
 
-  // 2. Pick asset for our platform.
-  const assetTemplate = cfg.get<string>('releaseAssetTemplate', 'loom-{platform}-{arch}.tar.gz');
+  // 2. Pick assets for our platform (both debug and release when available).
+  const releaseTemplate = cfg.get<string>('releaseAssetTemplateRelease', cfg.get<string>('releaseAssetTemplate', 'loom-{platform}-{arch}.tar.gz'));
+  const debugTemplate = cfg.get<string>('releaseAssetTemplateDebug', 'loom-{platform}-{arch}-debug.tar.gz');
   const platform = process.platform; // darwin | linux | win32
   const arch = process.arch;          // arm64 | x64 | ...
-  const assetName = assetTemplate
-    .replace('{platform}', platform)
-    .replace('{arch}', arch);
-
-  const asset = release.assets.find((a) => a.name === assetName);
-  if (!asset) {
-    const available = release.assets.map((a) => a.name).join(', ') || '(none)';
-    vscode.window.showErrorMessage(
-      `No asset named '${assetName}' in ${release.tag_name}. Available: ${available}. ` +
-      `Adjust 'loom.releaseAssetTemplate' if your release uses a different naming scheme.`,
-    );
-    return;
-  }
-  out.appendLine(`  asset: ${asset.name} (${formatBytes(asset.size)})`);
+  const templates: Record<RuntimeFlavor, string> = {
+    release: releaseTemplate,
+    debug: debugTemplate,
+  };
 
   // 3. Prepare target directory under the extension's globalStorageUri.
   const installRoot = vscode.Uri.joinPath(context.globalStorageUri, 'runtimes').fsPath;
   const versionDir = path.join(installRoot, release.tag_name);
   await fs.mkdir(versionDir, { recursive: true });
 
-  const archivePath = path.join(versionDir, asset.name);
+  const installed: InstalledFlavor[] = [];
+  // On Windows both Debug and Release runtimes are needed (CRT ABI split).
+  // On other platforms a single release binary is sufficient.
+  const flavors: RuntimeFlavor[] = process.platform === 'win32' ? ['release', 'debug'] : ['release'];
+  for (const flavor of flavors) {
+    const assetName = templates[flavor]
+      .replace('{platform}', platform)
+      .replace('{arch}', arch)
+      .replace('{build}', flavor);
+    const asset = release.assets.find((a) => a.name === assetName);
+    if (!asset) {
+      out.appendLine(`  warning: ${flavor} asset '${assetName}' not found in release ${release.tag_name}`);
+      continue;
+    }
 
-  // 4. Download with progress.
-  try {
-    await downloadWithProgress(asset.browser_download_url, archivePath, asset.size, asset.name);
-  } catch (e) {
-    vscode.window.showErrorMessage(`Download failed: ${(e as Error).message}`);
-    return;
+    out.appendLine(`  ${flavor} asset: ${asset.name} (${formatBytes(asset.size)})`);
+    const flavorDir = path.join(versionDir, flavor);
+    await fs.mkdir(flavorDir, { recursive: true });
+    const archivePath = path.join(flavorDir, asset.name);
+
+    try {
+      await downloadWithProgress(asset.browser_download_url, archivePath, asset.size, asset.name);
+      out.appendLine(`  downloaded ${flavor} -> ${archivePath}`);
+      await extractArchive(archivePath, flavorDir);
+      out.appendLine(`  extracted ${flavor} into ${flavorDir}`);
+    } catch (e) {
+      out.appendLine(`  warning: failed to install ${flavor}: ${(e as Error).message}`);
+      continue;
+    } finally {
+      try { await fs.unlink(archivePath); } catch { /* ignore */ }
+    }
+
+    const binary = await findBinary(flavorDir);
+    if (!binary) {
+      out.appendLine(`  warning: ${flavor} install does not contain loom binary`);
+      continue;
+    }
+    const modules = await findModulesDir(flavorDir);
+    out.appendLine(`  ${flavor} binary  : ${binary}`);
+    if (modules) out.appendLine(`  ${flavor} modules : ${modules}`);
+
+    if (process.platform !== 'win32') {
+      try { await fs.chmod(binary, 0o755); } catch { /* ignore */ }
+    }
+
+    try {
+      const { stdout } = await exec(`"${binary}" --version`, { timeout: 5000 });
+      out.appendLine(`  ${flavor}: ${binary} --version -> ${stdout.trim()}`);
+    } catch (e) {
+      out.appendLine(`  warning: ${flavor} \`${binary} --version\` did not return cleanly: ${(e as Error).message}`);
+    }
+
+    installed.push({ flavor, binary, modules: modules ?? undefined });
   }
-  out.appendLine(`  downloaded -> ${archivePath}`);
 
-  // 5. Extract.
-  try {
-    await extractArchive(archivePath, versionDir);
-  } catch (e) {
-    vscode.window.showErrorMessage(`Extraction failed: ${(e as Error).message}`);
-    return;
-  }
-  out.appendLine(`  extracted into ${versionDir}`);
-
-  // Clean up the archive once extracted.
-  try { await fs.unlink(archivePath); } catch { /* ignore */ }
-
-  // 6. Locate binary + modules dir.
-  const binary = await findBinary(versionDir);
-  if (!binary) {
+  if (installed.length === 0) {
+    const available = release.assets.map((a) => a.name).join(', ') || '(none)';
     vscode.window.showErrorMessage(
-      `Could not find the loom binary inside ${versionDir} after extraction. ` +
-      `The release archive may have an unexpected layout.`,
+      `No matching runtime assets were installed for ${platform}/${arch}. Available: ${available}. ` +
+      `Check loom.releaseAssetTemplateRelease / loom.releaseAssetTemplateDebug.`,
     );
     return;
-  }
-  const modules = await findModulesDir(versionDir);
-  out.appendLine(`  binary  : ${binary}`);
-  if (modules) out.appendLine(`  modules : ${modules}`);
-
-  // 7. Make sure the binary is executable (tar usually preserves bits, but be safe on POSIX).
-  if (process.platform !== 'win32') {
-    try { await fs.chmod(binary, 0o755); } catch { /* ignore */ }
-  }
-
-  // 8. Verify it runs.
-  try {
-    const { stdout } = await exec(`"${binary}" --version`, { timeout: 5000 });
-    out.appendLine(`  ${binary} --version -> ${stdout.trim()}`);
-  } catch (e) {
-    out.appendLine(`  warning: \`${binary} --version\` did not return cleanly: ${(e as Error).message}`);
   }
 
   // 9. Update settings (Global so they persist across workspaces).
   const target = vscode.ConfigurationTarget.Global;
-  await cfg.update('runtimeExecutable', binary, target);
-  if (modules) await cfg.update('systemModuleDir', modules, target);
+  if (process.platform === 'win32') {
+    // On Windows, track per-flavor executables and module dirs so the
+    // profile selector can load the right binary and module directory.
+    for (const item of installed) {
+      const suffix = item.flavor === 'debug' ? 'Debug' : 'Release';
+      await cfg.update(`runtimeExecutable${suffix}`, item.binary, target);
+      if (item.modules) await cfg.update(`systemModuleDir${suffix}`, item.modules, target);
+    }
+  }
+  // Generic settings — used on non-Windows and as back-compat fallback.
+  const releaseItem = installed.find((i) => i.flavor === 'release') ?? installed[0];
+  await cfg.update('runtimeExecutable', releaseItem.binary, target);
+  if (releaseItem.modules) await cfg.update('systemModuleDir', releaseItem.modules, target);
   // Clear any legacy loom.moduleDir override so the new userModuleDir /
   // systemModuleDir split is the single source of truth going forward.
   // (No-op if the user never set it.)
@@ -151,7 +176,8 @@ export async function installLoomRuntime(context: vscode.ExtensionContext): Prom
   //     Compute the install prefix from where the binary actually lives:
   //       <install>/loom              -> prefix = dirname(binary)
   //       <install>/bin/loom          -> prefix = dirname(dirname(binary))
-  const binParent = path.dirname(binary);
+  const binaryForCmake = installed.find((i) => i.flavor === 'release')?.binary ?? installed[0].binary;
+  const binParent = path.dirname(binaryForCmake);
   const cmakePrefix = path.basename(binParent) === 'bin' ? path.dirname(binParent) : binParent;
   const configDir = path.join(cmakePrefix, 'lib', 'cmake', 'loom');
   if (fsSync.existsSync(configDir)) {
@@ -166,9 +192,17 @@ export async function installLoomRuntime(context: vscode.ExtensionContext): Prom
     out.appendLine(`    (cut a Loom release with the SDK bundling workflow to enable find_package(loom))`);
   }
 
-  out.appendLine(`✓ Installed Loom ${release.tag_name}.`);
+  const gotDebug = installed.some((i) => i.flavor === 'debug');
+  const gotRelease = installed.some((i) => i.flavor === 'release');
+  const flavorSummary = process.platform === 'win32'
+    ? `(${gotDebug ? 'debug' : ''}${gotDebug && gotRelease ? ' + ' : ''}${gotRelease ? 'release' : ''})`
+    : '(release)';
+  out.appendLine(`✓ Installed Loom ${release.tag_name} ${flavorSummary}.`);
+  const profileHint = process.platform === 'win32'
+    ? ` Use "Loom: Select Runtime Profile" to switch Debug/Release.`
+    : '';
   vscode.window.showInformationMessage(
-    `Installed Loom ${release.tag_name}. You can now run "Loom: Start Runtime".`,
+    `Installed Loom ${release.tag_name}.${profileHint}`,
   );
 }
 
@@ -202,7 +236,11 @@ export async function uninstallLoomRuntime(context: vscode.ExtensionContext): Pr
 
   const target = vscode.ConfigurationTarget.Global;
   const runtimeExec = cfg.get<string>('runtimeExecutable', '');
+  const runtimeExecDebug = cfg.get<string>('runtimeExecutableDebug', '');
+  const runtimeExecRelease = cfg.get<string>('runtimeExecutableRelease', '');
   const systemModules = cfg.get<string>('systemModuleDir', '');
+  const systemModulesDebug = cfg.get<string>('systemModuleDirDebug', '');
+  const systemModulesRelease = cfg.get<string>('systemModuleDirRelease', '');
 
   const normalizedRoot = path.resolve(installRoot) + path.sep;
   const normalizeMaybe = (p: string): string => {
@@ -215,11 +253,35 @@ export async function uninstallLoomRuntime(context: vscode.ExtensionContext): Pr
     await cfg.update('runtimeExecutable', undefined, target);
     out.appendLine('  cleared loom.runtimeExecutable (was extension-managed)');
   }
+  if (process.platform === 'win32') {
+    const runtimeResolvedDebug = normalizeMaybe(runtimeExecDebug);
+    if (runtimeResolvedDebug && (runtimeResolvedDebug + path.sep).startsWith(normalizedRoot)) {
+      await cfg.update('runtimeExecutableDebug', undefined, target);
+      out.appendLine('  cleared loom.runtimeExecutableDebug (was extension-managed)');
+    }
+    const runtimeResolvedRelease = normalizeMaybe(runtimeExecRelease);
+    if (runtimeResolvedRelease && (runtimeResolvedRelease + path.sep).startsWith(normalizedRoot)) {
+      await cfg.update('runtimeExecutableRelease', undefined, target);
+      out.appendLine('  cleared loom.runtimeExecutableRelease (was extension-managed)');
+    }
+  }
 
   const modulesResolved = normalizeMaybe(systemModules);
   if (modulesResolved && (modulesResolved + path.sep).startsWith(normalizedRoot)) {
     await cfg.update('systemModuleDir', undefined, target);
     out.appendLine('  cleared loom.systemModuleDir (was extension-managed)');
+  }
+  if (process.platform === 'win32') {
+    const modulesResolvedDebug = normalizeMaybe(systemModulesDebug);
+    if (modulesResolvedDebug && (modulesResolvedDebug + path.sep).startsWith(normalizedRoot)) {
+      await cfg.update('systemModuleDirDebug', undefined, target);
+      out.appendLine('  cleared loom.systemModuleDirDebug (was extension-managed)');
+    }
+    const modulesResolvedRelease = normalizeMaybe(systemModulesRelease);
+    if (modulesResolvedRelease && (modulesResolvedRelease + path.sep).startsWith(normalizedRoot)) {
+      await cfg.update('systemModuleDirRelease', undefined, target);
+      out.appendLine('  cleared loom.systemModuleDirRelease (was extension-managed)');
+    }
   }
 
   try {
