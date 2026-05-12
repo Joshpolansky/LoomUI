@@ -2,7 +2,7 @@
   "name": "loom-workbench",
   "displayName": "Loom Workbench",
   "description": "Side-panel UI and debug commands for the Loom runtime.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "ajoshp",
   "preview": true,
   "license": "Apache-2.0",
