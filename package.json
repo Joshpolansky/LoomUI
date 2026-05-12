@@ -111,6 +111,11 @@
         "icon": "$(cloud-download)"
       },
       {
+        "command": "loom.runtime.uninstall",
+        "title": "Loom: Uninstall Loom Runtime...",
+        "icon": "$(trash)"
+      },
+      {
         "command": "loom.modules.refresh",
         "title": "Loom: Refresh Modules",
         "icon": "$(refresh)"

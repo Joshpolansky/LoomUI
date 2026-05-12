@@ -172,6 +172,67 @@ export async function installLoomRuntime(context: vscode.ExtensionContext): Prom
   );
 }
 
+/** Uninstall Loom runtimes managed by this extension.
+ *
+ *  Deletes <globalStorage>/runtimes, clears global loom.runtimeExecutable /
+ *  loom.systemModuleDir when they point into that managed install root, and
+ *  removes the CMake user package registry entry created by install.
+ */
+export async function uninstallLoomRuntime(context: vscode.ExtensionContext): Promise<void> {
+  const out = getExtensionOutput();
+  const cfg = vscode.workspace.getConfiguration('loom');
+  const installRoot = vscode.Uri.joinPath(context.globalStorageUri, 'runtimes').fsPath;
+
+  const confirm = await vscode.window.showWarningMessage(
+    `Uninstall Loom runtime? This removes managed installs under ${installRoot}.`,
+    { modal: true },
+    'Uninstall',
+  );
+  if (confirm !== 'Uninstall') return;
+
+  out.show(true);
+  out.appendLine(`▶ Uninstalling Loom runtime from ${installRoot}`);
+
+  try {
+    await fs.rm(installRoot, { recursive: true, force: true });
+    out.appendLine('  removed managed runtime directory');
+  } catch (e) {
+    out.appendLine(`  warning: failed to remove managed runtime directory: ${(e as Error).message}`);
+  }
+
+  const target = vscode.ConfigurationTarget.Global;
+  const runtimeExec = cfg.get<string>('runtimeExecutable', '');
+  const systemModules = cfg.get<string>('systemModuleDir', '');
+
+  const normalizedRoot = path.resolve(installRoot) + path.sep;
+  const normalizeMaybe = (p: string): string => {
+    if (!p) return '';
+    return path.resolve(p);
+  };
+
+  const runtimeResolved = normalizeMaybe(runtimeExec);
+  if (runtimeResolved && (runtimeResolved + path.sep).startsWith(normalizedRoot)) {
+    await cfg.update('runtimeExecutable', undefined, target);
+    out.appendLine('  cleared loom.runtimeExecutable (was extension-managed)');
+  }
+
+  const modulesResolved = normalizeMaybe(systemModules);
+  if (modulesResolved && (modulesResolved + path.sep).startsWith(normalizedRoot)) {
+    await cfg.update('systemModuleDir', undefined, target);
+    out.appendLine('  cleared loom.systemModuleDir (was extension-managed)');
+  }
+
+  try {
+    const where = await unregisterCmakePackage();
+    out.appendLine(`  removed CMake package registry entries at ${where}`);
+  } catch (e) {
+    out.appendLine(`  warning: failed to clean CMake package registry entries: ${(e as Error).message}`);
+  }
+
+  out.appendLine('✓ Loom runtime uninstall complete.');
+  vscode.window.showInformationMessage('Uninstalled Loom runtime managed by LoomUI.');
+}
+
 /** Write a CMake user package registry entry pointing at this install's
  *  loomConfig.cmake. After this, any CMake project on this user's
  *  machine that does `find_package(loom CONFIG REQUIRED)` will find the
@@ -211,6 +272,20 @@ async function registerCmakePackage(configDir: string): Promise<string> {
   const entryPath = path.join(registryDir, 'loom-workbench');
   await fs.writeFile(entryPath, configDir, 'utf8');
   return entryPath;
+}
+
+async function unregisterCmakePackage(): Promise<string> {
+  if (process.platform === 'win32') {
+    const key = 'HKCU\\Software\\Kitware\\CMake\\Packages\\loom';
+    try { await exec(`reg delete "${key}" /v "loom-workbench" /f`); } catch { /* ignore */ }
+    try { await exec(`reg delete "${key}" /v "loomui" /f`); } catch { /* ignore */ }
+    return key;
+  }
+
+  const registryDir = path.join(os.homedir(), '.cmake', 'packages', 'loom');
+  try { await fs.unlink(path.join(registryDir, 'loom-workbench')); } catch { /* ignore */ }
+  try { await fs.unlink(path.join(registryDir, 'loomui')); } catch { /* ignore */ }
+  return registryDir;
 }
 
 // ---------- helpers ----------
