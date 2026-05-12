@@ -17,6 +17,20 @@ export interface LoomPaths {
   dataDir: string;
 }
 
+function pushExistingDir(target: string[], dir: string): void {
+  if (!dir) return;
+  const resolved = path.resolve(dir);
+  if (!fs.existsSync(resolved)) return;
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(resolved);
+  } catch {
+    return;
+  }
+  if (!stat.isDirectory()) return;
+  if (!target.includes(resolved)) target.push(resolved);
+}
+
 /** Expand `${workspaceFolder}` against the active workspace.
  *  Returns undefined when the value referenced ${workspaceFolder} but no
  *  workspace is open — caller treats that as "unresolved" and falls
@@ -55,8 +69,8 @@ export function resolvePaths(): LoomPaths {
 
   // The list passed to the runtime, user-first, filtered to existing dirs.
   const moduleDirs: string[] = [];
-  if (userModuleDir   && fs.existsSync(userModuleDir))   moduleDirs.push(userModuleDir);
-  if (systemModuleDir && fs.existsSync(systemModuleDir)) moduleDirs.push(systemModuleDir);
+  pushExistingDir(moduleDirs, userModuleDir);
+  pushExistingDir(moduleDirs, systemModuleDir);
 
   // Data dir: explicit setting -> repo data -> ${workspaceFolder}/data ->
   // ~/.loom/data. The ${workspaceFolder} step lets the templated project's

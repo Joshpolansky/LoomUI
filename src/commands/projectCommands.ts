@@ -110,7 +110,19 @@ set_target_properties(${snake} PROPERTIES
     SUFFIX "\${LOOM_MODULE_SUFFIX}"
     CXX_VISIBILITY_PRESET hidden
     LIBRARY_OUTPUT_DIRECTORY "\${CMAKE_SOURCE_DIR}/output/modules"
+    RUNTIME_OUTPUT_DIRECTORY "\${CMAKE_SOURCE_DIR}/output/modules"
 )
+
+# Multi-config generators (common on Windows) can otherwise append
+# /Debug, /Release, etc. Keep all configs in output/modules/ so LoomUI's
+# default loom.userModuleDir works consistently.
+foreach(cfg Debug Release RelWithDebInfo MinSizeRel)
+  string(TOUPPER "\${cfg}" cfg_upper)
+  set_target_properties(${snake} PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY_\${cfg_upper} "\${CMAKE_SOURCE_DIR}/output/modules"
+    RUNTIME_OUTPUT_DIRECTORY_\${cfg_upper} "\${CMAKE_SOURCE_DIR}/output/modules"
+  )
+endforeach()
 
 # Class: ${klass}
 `;
