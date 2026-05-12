@@ -268,8 +268,8 @@ ${snake}/
 wrote an entry to CMake's per-user package registry when you installed
 the runtime:
 
-- macOS / Linux: \`~/.cmake/packages/loom/loomui\`
-- Windows: \`HKCU\\Software\\Kitware\\CMake\\Packages\\loom\\loomui\`
+- macOS / Linux: \`~/.cmake/packages/loom/loom-workbench\`
+- Windows: \`HKCU\\Software\\Kitware\\CMake\\Packages\\loom\\loom-workbench\`
 
 To override (e.g. pin a specific install), set \`LOOM_ROOT\` or pass
 \`-DCMAKE_PREFIX_PATH=<install>\` to the configure step.

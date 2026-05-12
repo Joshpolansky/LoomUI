@@ -177,29 +177,38 @@ export async function installLoomRuntime(context: vscode.ExtensionContext): Prom
  *  machine that does `find_package(loom CONFIG REQUIRED)` will find the
  *  SDK shipped in the binary release — no CMAKE_PREFIX_PATH, no env vars.
  *
- *  POSIX: writes `~/.cmake/packages/loom/loomui` containing the absolute
- *  path to configDir.
- *  Windows: writes HKCU\Software\Kitware\CMake\Packages\loom\loomui via
- *  reg.exe with the same path as the value's data.
+ *  POSIX: writes `~/.cmake/packages/loom/loom-workbench` containing the
+ *  absolute path to configDir.
+ *  Windows: writes HKCU\Software\Kitware\CMake\Packages\loom\loom-workbench
+ *  via reg.exe with the same path as the value's data.
  *
- *  Returns the location of the registry entry. */
+ *  Also removes any legacy `loomui` entry from a previous version of this
+ *  extension so the registry stays clean across the rename.
+ *
+ *  Returns the location of the new registry entry. */
 async function registerCmakePackage(configDir: string): Promise<string> {
   if (process.platform === 'win32') {
     // CMake reads HKEY_CURRENT_USER\Software\Kitware\CMake\Packages\<name>.
     // Each value's data is an absolute path to a dir containing
-    // <name>Config.cmake. Value name can be anything; we use "loomui" so
-    // reinstalls overwrite the same entry instead of accumulating.
+    // <name>Config.cmake. Value name can be anything; we use
+    // "loom-workbench" so reinstalls overwrite the same entry instead of
+    // accumulating.
     const key = 'HKCU\\Software\\Kitware\\CMake\\Packages\\loom';
-    await exec(`reg add "${key}" /v "loomui" /t REG_SZ /d "${configDir}" /f`);
-    return `${key}\\loomui`;
+    // Best-effort cleanup of the legacy "loomui" value (predecessor name).
+    try { await exec(`reg delete "${key}" /v "loomui" /f`); } catch { /* ignore: didn't exist */ }
+    await exec(`reg add "${key}" /v "loom-workbench" /t REG_SZ /d "${configDir}" /f`);
+    return `${key}\\loom-workbench`;
   }
 
   // POSIX: each file under ~/.cmake/packages/<name>/ contains a path that
-  // CMake adds to its search list. Filename is arbitrary; using "loomui"
-  // (instead of a random hash) means reinstalls cleanly overwrite.
+  // CMake adds to its search list. Filename is arbitrary; using
+  // "loom-workbench" (instead of a random hash) means reinstalls cleanly
+  // overwrite the same entry.
   const registryDir = path.join(os.homedir(), '.cmake', 'packages', 'loom');
   await fs.mkdir(registryDir, { recursive: true });
-  const entryPath = path.join(registryDir, 'loomui');
+  // Best-effort cleanup of the legacy "loomui" filename (predecessor name).
+  try { await fs.unlink(path.join(registryDir, 'loomui')); } catch { /* ignore: didn't exist */ }
+  const entryPath = path.join(registryDir, 'loom-workbench');
   await fs.writeFile(entryPath, configDir, 'utf8');
   return entryPath;
 }
