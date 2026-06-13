@@ -135,6 +135,11 @@
         "title": "Loom: Inspect Module in Variables View"
       },
       {
+        "command": "loom.modules.openPanel",
+        "title": "Loom: Open Module Panel",
+        "icon": "$(window)"
+      },
+      {
         "command": "loom.modules.inspect",
         "title": "Loom: Watch Modules (Variables View)",
         "icon": "$(search)"
@@ -316,9 +321,19 @@
       ],
       "view/item/context": [
         {
-          "command": "loom.modules.openSource",
+          "command": "loom.modules.openPanel",
+          "when": "view == loom.modules && viewItem == module",
+          "group": "inline@1"
+        },
+        {
+          "command": "loom.modules.openPanel",
           "when": "view == loom.modules && viewItem == module",
           "group": "0_open@1"
+        },
+        {
+          "command": "loom.modules.openSource",
+          "when": "view == loom.modules && viewItem == module",
+          "group": "0_open@2"
         },
         {
           "command": "loom.modules.reload",

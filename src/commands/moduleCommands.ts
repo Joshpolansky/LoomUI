@@ -8,6 +8,7 @@ import type { ModulesProvider } from '../views/modulesView';
 import { ModuleNode } from '../views/modulesView';
 import { getExtensionOutput } from '../util/output';
 import { ManagementPanel } from '../webview/managementPanel';
+import { ModulePanel } from '../webview/modulePanel';
 import { resolvePaths } from '../util/paths';
 
 export function registerModuleCommands(
@@ -219,6 +220,12 @@ export function registerModuleCommands(
 
     vscode.commands.registerCommand('loom.modules.manage', () => {
       ManagementPanel.show(context, client, live);
+    }),
+
+    vscode.commands.registerCommand('loom.modules.openPanel', async (idOrNode: unknown) => {
+      const id = await withModuleId(idOrNode, 'Open module panel');
+      if (!id) return;
+      ModulePanel.show(context, client, live, id);
     }),
 
     vscode.commands.registerCommand('loom.modules.upload', async () => {
