@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { RuntimeProcess } from '../runtime/runtimeProcess';
 import type { ModulesProvider } from '../views/modulesView';
-import { installLoomRuntime, uninstallLoomRuntime } from '../runtime/installRuntime';
+import { installLoomRuntime, uninstallLoomRuntime, selectAndInstallRuntime } from '../runtime/installRuntime';
 
 export function registerRuntimeCommands(
   context: vscode.ExtensionContext,
@@ -59,6 +59,7 @@ export function registerRuntimeCommands(
       modules.refresh();
     }),
     vscode.commands.registerCommand('loom.runtime.install', () => installLoomRuntime(context)),
+    vscode.commands.registerCommand('loom.runtime.selectBuild', () => selectAndInstallRuntime(context)),
     vscode.commands.registerCommand('loom.runtime.uninstall', () => uninstallLoomRuntime(context)),
   );
 }

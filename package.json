@@ -111,6 +111,11 @@
         "icon": "$(cloud-download)"
       },
       {
+        "command": "loom.runtime.selectBuild",
+        "title": "Loom: Select Loom Build...",
+        "icon": "$(versions)"
+      },
+      {
         "command": "loom.runtime.selectProfile",
         "title": "Loom: Select Runtime Profile...",
         "icon": "$(versions)"
@@ -524,6 +529,11 @@
           "type": "string",
           "default": "Joshpolansky/Loom",
           "description": "GitHub repo (form 'owner/name') hosting Loom binary releases. Used by the 'Loom: Install Loom Runtime' command."
+        },
+        "loom.includePrereleaseBuilds": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include prerelease (dev) builds in the 'Loom: Select Loom Build' picker. Stable releases are always listed; enable this to also see the rolling 'dev' build and other prereleases for testing before they ship."
         },
         "loom.releaseAssetTemplate": {
           "type": "string",

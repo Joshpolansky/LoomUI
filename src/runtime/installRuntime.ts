@@ -20,6 +20,9 @@ interface GitHubRelease {
   name: string;
   assets: GitHubAsset[];
   html_url: string;
+  prerelease: boolean;
+  draft: boolean;
+  published_at: string;
 }
 
 type RuntimeFlavor = 'debug' | 'release';
@@ -30,25 +33,31 @@ interface InstalledFlavor {
   modules?: string;
 }
 
-/** Fetch the latest Loom release from GitHub, download the asset matching
- *  the user's platform/arch, extract it under the extension's globalStorage
- *  directory, and update the loom.runtimeExecutable / loom.moduleDir
- *  settings to point at the extracted binary. */
-export async function installLoomRuntime(context: vscode.ExtensionContext): Promise<void> {
-  const out = getExtensionOutput();
+/** Validate loom.releaseRepo and return it, or null (after showing an error). */
+function validateRepo(): string | null {
   const cfg = vscode.workspace.getConfiguration('loom');
   const repo = cfg.get<string>('releaseRepo', '').trim();
   if (!repo || !/^[^/\s]+\/[^/\s]+$/.test(repo)) {
     vscode.window.showErrorMessage(
       `Set 'loom.releaseRepo' to the GitHub repo (form: owner/Loom). Current value: '${repo || '(empty)'}'`,
     );
-    return;
+    return null;
   }
+  return repo;
+}
+
+/** Fetch the latest *stable* Loom release and install it. GitHub's
+ *  /releases/latest endpoint excludes prereleases, so this always tracks the
+ *  stable channel — pushing a dev build never disturbs this path. Use
+ *  "Loom: Select Loom Build" to pick a specific version or a dev build. */
+export async function installLoomRuntime(context: vscode.ExtensionContext): Promise<void> {
+  const out = getExtensionOutput();
+  const repo = validateRepo();
+  if (!repo) return;
 
   out.show(true);
-  out.appendLine(`▶ Installing Loom from github.com/${repo}`);
+  out.appendLine(`▶ Installing latest Loom from github.com/${repo}`);
 
-  // 1. Fetch latest release.
   let release: GitHubRelease;
   try {
     release = await fetchJson<GitHubRelease>(`https://api.github.com/repos/${repo}/releases/latest`);
@@ -60,7 +69,85 @@ export async function installLoomRuntime(context: vscode.ExtensionContext): Prom
     return;
   }
 
-  out.appendLine(`  found release ${release.tag_name} with ${release.assets.length} asset(s)`);
+  await installSpecificRelease(context, release);
+}
+
+/** Show a picker of available builds and install the chosen one. Stable
+ *  releases are always listed; dev builds (prereleases, e.g. the rolling
+ *  'dev' tag) appear only when loom.includePrereleaseBuilds is enabled, so
+ *  end users aren't offered untested builds by default. */
+export async function selectAndInstallRuntime(context: vscode.ExtensionContext): Promise<void> {
+  const out = getExtensionOutput();
+  const repo = validateRepo();
+  if (!repo) return;
+  const cfg = vscode.workspace.getConfiguration('loom');
+  const includePre = cfg.get<boolean>('includePrereleaseBuilds', false);
+
+  let releases: GitHubRelease[];
+  try {
+    releases = await fetchJson<GitHubRelease[]>(`https://api.github.com/repos/${repo}/releases?per_page=30`);
+  } catch (e) {
+    vscode.window.showErrorMessage(
+      `Cannot list releases from ${repo}: ${(e as Error).message}. ` +
+      `Visit https://github.com/${repo}/releases to download manually.`,
+    );
+    return;
+  }
+
+  let candidates = releases.filter((r) => !r.draft);
+  if (!includePre) candidates = candidates.filter((r) => !r.prerelease);
+  if (candidates.length === 0) {
+    vscode.window.showInformationMessage(
+      includePre
+        ? `No releases found in ${repo}.`
+        : `No stable releases found in ${repo}. Enable 'loom.includePrereleaseBuilds' to see dev builds.`,
+    );
+    return;
+  }
+
+  // Annotate each build with whether it's already downloaded / currently active.
+  const installRoot = vscode.Uri.joinPath(context.globalStorageUri, 'runtimes').fsPath;
+  const activeExe = path.resolve(cfg.get<string>('runtimeExecutable', '') || '');
+  interface BuildItem extends vscode.QuickPickItem { release: GitHubRelease; }
+  const items: BuildItem[] = candidates.map((r) => {
+    const versionDir = path.resolve(path.join(installRoot, r.tag_name));
+    const downloaded = fsSync.existsSync(versionDir);
+    const active = activeExe !== '' && (activeExe + path.sep).startsWith(versionDir + path.sep);
+    const tags: string[] = [];
+    if (r.prerelease) tags.push('dev');
+    if (active) tags.push('active');
+    else if (downloaded) tags.push('downloaded');
+    return {
+      label: `${r.prerelease ? '$(beaker)' : '$(tag)'} ${r.tag_name}`,
+      description: tags.join(' · '),
+      detail: r.name && r.name !== r.tag_name ? r.name : undefined,
+      release: r,
+    };
+  });
+
+  const picked = await vscode.window.showQuickPick(items, {
+    title: 'Select Loom Build to Install',
+    placeHolder: includePre
+      ? 'Stable and dev builds — newest first'
+      : 'Stable builds (enable loom.includePrereleaseBuilds to see dev builds)',
+    matchOnDescription: true,
+    matchOnDetail: true,
+  });
+  if (!picked) return;
+
+  out.show(true);
+  await installSpecificRelease(context, picked.release);
+}
+
+/** Download the assets for a specific release matching this platform/arch,
+ *  extract them under globalStorage, and point the loom settings at them.
+ *  The rolling 'dev' tag is re-downloaded every time it is selected, since its
+ *  contents change while the tag name stays the same. */
+async function installSpecificRelease(context: vscode.ExtensionContext, release: GitHubRelease): Promise<void> {
+  const out = getExtensionOutput();
+  const cfg = vscode.workspace.getConfiguration('loom');
+
+  out.appendLine(`  installing release ${release.tag_name}${release.prerelease ? ' (dev build)' : ''} with ${release.assets.length} asset(s)`);
 
   // 2. Pick assets for our platform (both debug and release when available).
   const releaseTemplate = cfg.get<string>('releaseAssetTemplateRelease', cfg.get<string>('releaseAssetTemplate', 'loom-{platform}-{arch}.tar.gz'));
