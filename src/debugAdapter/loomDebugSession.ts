@@ -27,6 +27,11 @@ import { encodeEvalName, jsonPointerEscape, deepSet } from '../util/jsonValue';
 
 const FAKE_THREAD_ID = 1;
 const INVALIDATE_DEBOUNCE_MS = 500;
+// A module's live subscriptions are dropped once its Variables node has gone
+// un-requested for this long. The 5s poll-invalidate re-requests every
+// still-expanded node, refreshing its timestamp, so only genuinely-collapsed
+// modules age out. Keep it comfortably above the poll interval.
+const IDLE_UNSUBSCRIBE_MS = 12000;
 
 interface VarHandle {
   kind: 'modules' | 'module' | 'section' | 'object' | 'array' | 'stats';
@@ -43,8 +48,13 @@ export class LoomDebugSession extends DebugSession {
   private readonly handles = new Handles<VarHandle>();
   private modules: ModuleInfo[] = [];
   private readonly details = new Map<string, ModuleDetail>();
-  /** Live section monitors (runtime/summary/stats) per opened module. */
+  /** Live section monitors per module — created when a module is expanded in
+   *  the Variables view, disposed by the idle sweep once it's been collapsed
+   *  (un-requested) for a while, so we only stream what the user is viewing. */
   private readonly moduleMonitors = new Map<string, vscode.Disposable[]>();
+  /** moduleId → last time its node (or a descendant) was requested by VSCode;
+   *  drives the idle-unsubscribe sweep in pollModules(). */
+  private readonly lastRequested = new Map<string, number>();
   private pollTimer: NodeJS.Timeout | null = null;
   private invalidateTimer: NodeJS.Timeout | null = null;
 
@@ -93,10 +103,9 @@ export class LoomDebugSession extends DebugSession {
     try {
       this.modules = await this.client.getModules();
       this.sendOutput(`Connected to Loom (${this.modules.length} module${this.modules.length === 1 ? '' : 's'}).\n`);
-      // Prefetch every module's detail in parallel so expanding any
-      // module in the Variables view is instant rather than racing a REST
-      // round-trip after the click.
-      await Promise.all(this.modules.map((m) => this.ensureDetail(m.id)));
+      // Detail + live subscriptions are now fetched lazily, per module, when the
+      // user expands it in the Variables view — so an idle inspector with many
+      // modules costs nothing. (See markActive / the idle sweep in pollModules.)
     } catch (e) {
       this.sendOutput(`Failed to fetch modules: ${(e as Error).message}\n`, 'stderr');
     }
@@ -165,6 +174,10 @@ export class LoomDebugSession extends DebugSession {
     }
 
     if (!h.moduleId) return [];
+
+    // The user is looking at this module (its node or a descendant was just
+    // requested) → ensure it's subscribed and refresh its keep-alive timestamp.
+    this.markActive(h.moduleId);
 
     if (h.kind === 'module') {
       const detail = await this.ensureDetail(h.moduleId);
@@ -286,6 +299,7 @@ export class LoomDebugSession extends DebugSession {
     if (this.invalidateTimer) { clearTimeout(this.invalidateTimer); this.invalidateTimer = null; }
     for (const subs of this.moduleMonitors.values()) for (const s of subs) s.dispose();
     this.moduleMonitors.clear();
+    this.lastRequested.clear();
     this.sendResponse(response);
     this.sendEvent(new TerminatedEvent());
   }
@@ -300,8 +314,20 @@ export class LoomDebugSession extends DebugSession {
       for (const id of idsBefore) {
         if (!idsAfter.has(id)) {
           this.details.delete(id);
+          this.lastRequested.delete(id);
           const subs = this.moduleMonitors.get(id);
           if (subs) { for (const s of subs) s.dispose(); this.moduleMonitors.delete(id); }
+        }
+      }
+      // Idle sweep: unsubscribe modules the user hasn't looked at recently. The
+      // sendInvalidated below re-requests still-expanded nodes, refreshing their
+      // timestamps, so only genuinely-collapsed modules age out.
+      const now = Date.now();
+      for (const [id, subs] of this.moduleMonitors) {
+        if (now - (this.lastRequested.get(id) ?? 0) > IDLE_UNSUBSCRIBE_MS) {
+          for (const s of subs) s.dispose();
+          this.moduleMonitors.delete(id);
+          this.lastRequested.delete(id);
         }
       }
       this.sendInvalidated();
@@ -321,41 +347,32 @@ export class LoomDebugSession extends DebugSession {
         return null;
       }
     }
-    if (!this.moduleMonitors.has(moduleId)) {
-      this.moduleMonitors.set(moduleId, [
-        this.opc.monitor(moduleNode(moduleId, 'runtime'), (value, ok) => {
-          const det = this.details.get(moduleId);
-          if (!ok || value == null || !det) return;
-          det.data.runtime = value as Record<string, unknown>;
-          this.scheduleInvalidate();
-        }),
-        this.opc.monitor(moduleNode(moduleId, 'summary'), (value, ok) => {
-          const det = this.details.get(moduleId);
-          if (!ok || value == null || !det) return;
-          det.data.summary = value as Record<string, unknown>;
-          this.scheduleInvalidate();
-        }),
-        this.opc.monitor(statsNode(moduleId), (value, ok) => {
-          const det = this.details.get(moduleId);
-          if (!ok || value == null || !det) return;
-          det.stats = value as ModuleStats;
-          this.scheduleInvalidate();
-        }),
-        this.opc.monitor(moduleNode(moduleId, 'config'), (value, ok) => {
-          const det = this.details.get(moduleId);
-          if (!ok || value == null || !det) return;
-          det.data.config = value as Record<string, unknown>;
-          this.scheduleInvalidate();
-        }),
-        this.opc.monitor(moduleNode(moduleId, 'recipe'), (value, ok) => {
-          const det = this.details.get(moduleId);
-          if (!ok || value == null || !det) return;
-          det.data.recipe = value as Record<string, unknown>;
-          this.scheduleInvalidate();
-        }),
-      ]);
-    }
     return d;
+  }
+
+  /** Note that a module is being viewed: subscribe its live sections (if not
+   *  already) and refresh its keep-alive timestamp for the idle sweep. */
+  private markActive(moduleId: string): void {
+    this.lastRequested.set(moduleId, Date.now());
+    if (this.moduleMonitors.has(moduleId)) return;
+    const onSection = (section: DataSection) => (value: unknown, ok: boolean) => {
+      const det = this.details.get(moduleId);
+      if (!ok || value == null || !det) return;
+      det.data[section] = value as Record<string, unknown>;
+      this.scheduleInvalidate();
+    };
+    this.moduleMonitors.set(moduleId, [
+      this.opc.monitor(moduleNode(moduleId, 'runtime'), onSection('runtime')),
+      this.opc.monitor(moduleNode(moduleId, 'summary'), onSection('summary')),
+      this.opc.monitor(moduleNode(moduleId, 'config'), onSection('config')),
+      this.opc.monitor(moduleNode(moduleId, 'recipe'), onSection('recipe')),
+      this.opc.monitor(statsNode(moduleId), (value, ok) => {
+        const det = this.details.get(moduleId);
+        if (!ok || value == null || !det) return;
+        det.stats = value as ModuleStats;
+        this.scheduleInvalidate();
+      }),
+    ]);
   }
 
   /** Manual refresh — fires Invalidated immediately. */
