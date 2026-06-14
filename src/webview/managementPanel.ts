@@ -2,9 +2,11 @@ import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { LoomClient } from '../api/client';
-import type { LiveStream, LiveUpdate } from '../api/liveStream';
+import type { OpcuaClient } from '../api/opcuaClient';
+import { statsNode } from '../api/nodeId';
 import {
   type ModuleInfo,
+  type ModuleStats,
   type AvailableModule,
   MODULE_STATES,
 } from '../api/types';
@@ -24,9 +26,9 @@ const REFRESH_MS = 5000;
 export class ManagementPanel {
   private static current: ManagementPanel | undefined;
 
-  static show(context: vscode.ExtensionContext, client: LoomClient, live: LiveStream): void {
+  static show(context: vscode.ExtensionContext, client: LoomClient, opc: OpcuaClient): void {
     if (this.current) { this.current.panel.reveal(); return; }
-    this.current = new ManagementPanel(context, client, live);
+    this.current = new ManagementPanel(context, client, opc);
     this.current.panel.onDidDispose(() => { this.current = undefined; });
   }
 
@@ -36,11 +38,13 @@ export class ManagementPanel {
   private modules: ModuleInfo[] = [];
   private available: AvailableModule[] = [];
   private connected = false;
+  /** Live per-module stats monitors, keyed by module id. */
+  private readonly statMonitors = new Map<string, vscode.Disposable>();
 
   private constructor(
     context: vscode.ExtensionContext,
     private readonly client: LoomClient,
-    private readonly live: LiveStream,
+    private readonly opc: OpcuaClient,
   ) {
     this.panel = vscode.window.createWebviewPanel(
       'loom.management',
@@ -57,7 +61,6 @@ export class ManagementPanel {
 
     this.disposables.push(
       this.panel.webview.onDidReceiveMessage((m) => void this.onMessage(m as WebviewMessage)),
-      this.live.onLive((u) => this.applyLive(u)),
     );
     this.panel.onDidDispose(() => this.dispose());
 
@@ -78,6 +81,7 @@ export class ManagementPanel {
       this.connected = false;
     }
     this.available = availableResult.status === 'fulfilled' ? availableResult.value : [];
+    this.reconcileMonitors();
     this.send({
       type: 'state',
       modules: this.modules,
@@ -87,15 +91,22 @@ export class ManagementPanel {
     });
   }
 
-  private applyLive(u: LiveUpdate): void {
-    let mutated = false;
-    for (const m of this.modules) {
-      const live = u.modules[m.id];
-      if (!live?.stats) continue;
-      m.stats = live.stats;
-      mutated = true;
+  /** Add/drop per-module stats subscriptions so they track the current list. */
+  private reconcileMonitors(): void {
+    const ids = new Set(this.modules.map((m) => m.id));
+    for (const [id, sub] of this.statMonitors) {
+      if (!ids.has(id)) { sub.dispose(); this.statMonitors.delete(id); }
     }
-    if (mutated) this.send({ type: 'liveStats', modules: this.modules });
+    for (const id of ids) {
+      if (this.statMonitors.has(id)) continue;
+      this.statMonitors.set(id, this.opc.monitor(statsNode(id), (value, ok) => {
+        if (!ok || value == null) return;
+        const m = this.modules.find((x) => x.id === id);
+        if (!m) return;
+        m.stats = value as ModuleStats;
+        this.send({ type: 'liveStats', modules: this.modules });
+      }));
+    }
   }
 
   private async onMessage(msg: WebviewMessage): Promise<void> {
@@ -191,6 +202,8 @@ export class ManagementPanel {
 
   private dispose(): void {
     if (this.pollTimer) clearInterval(this.pollTimer);
+    for (const sub of this.statMonitors.values()) sub.dispose();
+    this.statMonitors.clear();
     for (const d of this.disposables) d.dispose();
   }
 

@@ -82,7 +82,7 @@ Most settings are managed for you by the install and scaffold commands. The ones
 | `loom.debugAdapter` | `lldb` | Using Microsoft C/C++ instead of CodeLLDB — set to `cppdbg`. |
 | `loom.repoPath` | *(empty)* | Building Loom from source — set to your checkout. |
 
-Advanced / less common: `loom.runtimeExecutable`, `loom.userModuleDir`, `loom.systemModuleDir`, `loom.dataDir`, `loom.releaseRepo`, `loom.releaseAssetTemplate`, `loom.pollIntervalMs`. See the **Loom** section in VS Code's settings UI for the full reference.
+Advanced / less common: `loom.runtimeExecutable`, `loom.userModuleDir`, `loom.systemModuleDir`, `loom.dataDir`, `loom.releaseRepo`, `loom.releaseAssetTemplate`, `loom.pollIntervalMs`, `loom.publishingIntervalMs`. See the **Loom** section in VS Code's settings UI for the full reference.
 
 ## License
 

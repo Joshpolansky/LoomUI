@@ -11,13 +11,16 @@ import {
   InvalidatedEvent,
 } from '@vscode/debugadapter';
 import { DebugProtocol } from '@vscode/debugprotocol';
+import * as vscode from 'vscode';
 
 import type { LoomClient } from '../api/client';
-import type { LiveStream } from '../api/liveStream';
+import type { OpcuaClient } from '../api/opcuaClient';
+import { moduleNode, statsNode } from '../api/nodeId';
 import {
   type DataSection,
   type ModuleDetail,
   type ModuleInfo,
+  type ModuleStats,
   MODULE_STATES,
 } from '../api/types';
 import { encodeEvalName, jsonPointerEscape, deepSet } from '../util/jsonValue';
@@ -40,14 +43,14 @@ export class LoomDebugSession extends DebugSession {
   private readonly handles = new Handles<VarHandle>();
   private modules: ModuleInfo[] = [];
   private readonly details = new Map<string, ModuleDetail>();
-  private readonly subscribed = new Set<string>();
+  /** Live section monitors (runtime/summary/stats) per opened module. */
+  private readonly moduleMonitors = new Map<string, vscode.Disposable[]>();
   private pollTimer: NodeJS.Timeout | null = null;
   private invalidateTimer: NodeJS.Timeout | null = null;
-  private readonly liveDisposables: { dispose(): void }[] = [];
 
   constructor(
     private readonly client: LoomClient,
-    private readonly live: LiveStream,
+    private readonly opc: OpcuaClient,
   ) {
     super();
     this.setDebuggerLinesStartAt1(true);
@@ -99,26 +102,6 @@ export class LoomDebugSession extends DebugSession {
     }
 
     this.pollTimer = setInterval(() => void this.pollModules(), 5000);
-
-    this.liveDisposables.push(
-      this.live.onLive((u) => {
-        for (const d of this.details.values()) {
-          const live = u.modules[d.id];
-          if (!live) continue;
-          if (live.summary) d.data.summary = live.summary;
-          if (live.stats)   d.stats = live.stats;
-        }
-        this.scheduleInvalidate();
-      }),
-      this.live.onRuntime((u) => {
-        for (const [id, live] of Object.entries(u.modules)) {
-          const d = this.details.get(id);
-          if (!d) continue;
-          d.data.runtime = live.runtime;
-        }
-        this.scheduleInvalidate();
-      }),
-    );
 
     this.sendResponse(response);
   }
@@ -301,10 +284,8 @@ export class LoomDebugSession extends DebugSession {
   ): void {
     if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
     if (this.invalidateTimer) { clearTimeout(this.invalidateTimer); this.invalidateTimer = null; }
-    for (const d of this.liveDisposables) d.dispose();
-    this.liveDisposables.length = 0;
-    for (const id of this.subscribed) this.live.unsubscribeRuntime(id);
-    this.subscribed.clear();
+    for (const subs of this.moduleMonitors.values()) for (const s of subs) s.dispose();
+    this.moduleMonitors.clear();
     this.sendResponse(response);
     this.sendEvent(new TerminatedEvent());
   }
@@ -315,11 +296,12 @@ export class LoomDebugSession extends DebugSession {
       const idsBefore = new Set(this.modules.map((m) => m.id));
       const idsAfter = new Set(next.map((m) => m.id));
       this.modules = next;
-      // Drop cached details for modules that disappeared.
+      // Drop cached details + monitors for modules that disappeared.
       for (const id of idsBefore) {
         if (!idsAfter.has(id)) {
           this.details.delete(id);
-          if (this.subscribed.delete(id)) this.live.unsubscribeRuntime(id);
+          const subs = this.moduleMonitors.get(id);
+          if (subs) { for (const s of subs) s.dispose(); this.moduleMonitors.delete(id); }
         }
       }
       this.sendInvalidated();
@@ -339,9 +321,27 @@ export class LoomDebugSession extends DebugSession {
         return null;
       }
     }
-    if (!this.subscribed.has(moduleId)) {
-      this.subscribed.add(moduleId);
-      this.live.subscribeRuntime(moduleId);
+    if (!this.moduleMonitors.has(moduleId)) {
+      this.moduleMonitors.set(moduleId, [
+        this.opc.monitor(moduleNode(moduleId, 'runtime'), (value, ok) => {
+          const det = this.details.get(moduleId);
+          if (!ok || value == null || !det) return;
+          det.data.runtime = value as Record<string, unknown>;
+          this.scheduleInvalidate();
+        }),
+        this.opc.monitor(moduleNode(moduleId, 'summary'), (value, ok) => {
+          const det = this.details.get(moduleId);
+          if (!ok || value == null || !det) return;
+          det.data.summary = value as Record<string, unknown>;
+          this.scheduleInvalidate();
+        }),
+        this.opc.monitor(statsNode(moduleId), (value, ok) => {
+          const det = this.details.get(moduleId);
+          if (!ok || value == null || !det) return;
+          det.stats = value as ModuleStats;
+          this.scheduleInvalidate();
+        }),
+      ]);
     }
     return d;
   }

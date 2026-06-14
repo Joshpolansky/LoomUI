@@ -572,7 +572,12 @@
         "loom.pollIntervalMs": {
           "type": "number",
           "default": 5000,
-          "description": "How often to poll /api/modules while disconnected from the WebSocket."
+          "description": "How often to poll /api/modules for the module/class list and metadata."
+        },
+        "loom.publishingIntervalMs": {
+          "type": "number",
+          "default": 100,
+          "description": "OPC-UA subscription publishing interval for live data (runtime/summary/stats) pushed over the push channel."
         }
       }
     }

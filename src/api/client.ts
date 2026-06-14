@@ -8,9 +8,17 @@ import type {
   DataSection,
   IOMapping,
 } from './types';
+import type { OpcuaClient } from './opcuaClient';
+import { moduleNode, ptrToFieldPath } from './nodeId';
 
 export class LoomClient {
+  /** Set in extension.ts so section reads/writes go through the OPC-UA facade.
+   *  Management endpoints (modules/scheduler/bus/io-mappings) stay on REST. */
+  private opc: OpcuaClient | undefined;
+
   constructor(private getBaseUrl: () => string) {}
+
+  attachOpcua(opc: OpcuaClient): void { this.opc = opc; }
 
   private base(): string {
     return this.getBaseUrl().replace(/\/+$/, '');
@@ -63,13 +71,23 @@ export class LoomClient {
     );
   }
 
-  getModuleData(id: string, section: DataSection) {
+  async getModuleData(id: string, section: DataSection): Promise<Record<string, unknown>> {
+    if (this.opc) {
+      const { value } = await this.opc.read(moduleNode(id, section));
+      return (value ?? {}) as Record<string, unknown>;
+    }
     return this.json<Record<string, unknown>>(
       `/api/modules/${encodeURIComponent(id)}/data/${section}`,
     );
   }
 
-  patchModuleData(id: string, section: DataSection, ptr: string, value: unknown) {
+  async patchModuleData(
+    id: string, section: DataSection, ptr: string, value: unknown,
+  ): Promise<{ ok: boolean }> {
+    if (this.opc) {
+      const ok = await this.opc.write(moduleNode(id, section, ptrToFieldPath(ptr)), value);
+      return { ok };
+    }
     return this.json<{ ok: boolean }>(
       `/api/modules/${encodeURIComponent(id)}/data/${section}`,
       {

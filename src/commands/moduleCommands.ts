@@ -3,7 +3,7 @@ import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
 import type { LoomClient } from '../api/client';
-import type { LiveStream } from '../api/liveStream';
+import type { OpcuaClient } from '../api/opcuaClient';
 import type { ModulesProvider } from '../views/modulesView';
 import { ModuleNode } from '../views/modulesView';
 import { getExtensionOutput } from '../util/output';
@@ -14,7 +14,7 @@ import { resolvePaths } from '../util/paths';
 export function registerModuleCommands(
   context: vscode.ExtensionContext,
   client: LoomClient,
-  live: LiveStream,
+  opc: OpcuaClient,
   view: ModulesProvider,
 ): void {
   const out = getExtensionOutput();
@@ -219,13 +219,13 @@ export function registerModuleCommands(
     }),
 
     vscode.commands.registerCommand('loom.modules.manage', () => {
-      ManagementPanel.show(context, client, live);
+      ManagementPanel.show(context, client, opc);
     }),
 
     vscode.commands.registerCommand('loom.modules.openPanel', async (idOrNode: unknown) => {
       const id = await withModuleId(idOrNode, 'Open module panel');
       if (!id) return;
-      ModulePanel.show(context, client, live, id);
+      ModulePanel.show(context, client, opc, id);
     }),
 
     vscode.commands.registerCommand('loom.modules.upload', async () => {

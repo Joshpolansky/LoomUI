@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { LoomClient } from './api/client';
-import { LiveStream } from './api/liveStream';
+import { OpcuaClient } from './api/opcuaClient';
 import { ModulesProvider } from './views/modulesView';
 import { SchedulerProvider } from './views/schedulerView';
 import { BusProvider } from './views/busView';
@@ -23,16 +23,17 @@ import { disposeOutputs, getExtensionOutput } from './util/output';
 
 export function activate(context: vscode.ExtensionContext): void {
   const client = new LoomClient(serverUrl);
-  const live = new LiveStream();
+  const opc = new OpcuaClient(serverUrl);
+  client.attachOpcua(opc);
   const runtime = new RuntimeProcess();
 
-  const modulesProvider   = new ModulesProvider(client, live);
-  const schedulerProvider = new SchedulerProvider(client, live);
+  const modulesProvider   = new ModulesProvider(client, opc);
+  const schedulerProvider = new SchedulerProvider(client, opc);
   const busProvider       = new BusProvider(client);
   const mappingsProvider  = new MappingsProvider(client);
 
   context.subscriptions.push(
-    runtime, live, modulesProvider, schedulerProvider, busProvider, mappingsProvider,
+    runtime, opc, modulesProvider, schedulerProvider, busProvider, mappingsProvider,
   );
 
   context.subscriptions.push(
@@ -49,14 +50,14 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   registerRuntimeCommands(context, runtime, modulesProvider);
-  registerModuleCommands(context, client, live, modulesProvider);
+  registerModuleCommands(context, client, opc, modulesProvider);
   registerSchedulerCommands(context, client, schedulerProvider);
   registerMappingCommands(context, client, mappingsProvider);
   registerProjectCommands(context);
   registerDebugCommands(context, runtime);
 
   // --- DAP-based module inspector ---
-  const inspectorFactory = new LoomDebugAdapterFactory(client, live);
+  const inspectorFactory = new LoomDebugAdapterFactory(client, opc);
   context.subscriptions.push(
     vscode.debug.registerDebugAdapterDescriptorFactory(LOOM_DEBUG_TYPE, inspectorFactory),
     vscode.debug.registerDebugConfigurationProvider(
@@ -141,7 +142,7 @@ export function activate(context: vscode.ExtensionContext): void {
           schedulerProvider.refresh();
           busProvider.refresh();
           mappingsProvider.refresh();
-          live.reconnect();
+          opc.reconnect();
         }, 800);
       } else {
         modulesProvider.refresh();
@@ -152,7 +153,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('loom.serverUrl')) {
-        live.reconnect();
+        opc.reconnect();
         modulesProvider.refresh();
         schedulerProvider.refresh();
         busProvider.refresh();

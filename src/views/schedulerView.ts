@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { LoomClient } from '../api/client';
-import type { LiveStream } from '../api/liveStream';
+import type { OpcuaClient } from '../api/opcuaClient';
+import { classNode } from '../api/nodeId';
 import type { ClassInfo, ClassLiveStats } from '../api/types';
 
 export type Node = ClassNode | MemberNode;
@@ -26,6 +27,8 @@ export class SchedulerProvider
   private classes: ClassInfo[] = [];
   private liveStats: Record<string, ClassLiveStats> = {};
   private pollTimer: NodeJS.Timeout | null = null;
+  /** Live per-class stats monitors, keyed by class name. */
+  private readonly statMonitors = new Map<string, vscode.Disposable>();
 
   private readonly _onChange = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this._onChange.event;
@@ -34,19 +37,14 @@ export class SchedulerProvider
 
   constructor(
     private readonly client: LoomClient,
-    private readonly live: LiveStream,
+    private readonly opc: OpcuaClient,
   ) {
     void this.poll();
     const intervalMs = vscode.workspace.getConfiguration('loom').get<number>('pollIntervalMs', 5000);
     this.pollTimer = setInterval(() => void this.poll(), Math.max(intervalMs * 2, 5000));
 
     this.disposables.push(
-      this.live.onLive((u) => {
-        if (!u.classes) return;
-        this.liveStats = u.classes;
-        this._onChange.fire(undefined);
-      }),
-      this.live.onConnectionChange((connected) => {
+      this.opc.onConnectionChange((connected) => {
         if (connected) void this.poll();
         else this._onChange.fire(undefined);
       }),
@@ -65,7 +63,28 @@ export class SchedulerProvider
     } catch {
       this.classes = [];
     }
+    this.reconcileMonitors();
     this._onChange.fire(undefined);
+  }
+
+  /** Add/drop per-class stats subscriptions so they track the current classes. */
+  private reconcileMonitors(): void {
+    const names = new Set(this.classes.map((c) => c.name));
+    for (const [name, sub] of this.statMonitors) {
+      if (!names.has(name)) {
+        sub.dispose();
+        this.statMonitors.delete(name);
+        delete this.liveStats[name];
+      }
+    }
+    for (const name of names) {
+      if (this.statMonitors.has(name)) continue;
+      this.statMonitors.set(name, this.opc.monitor(classNode(name), (value, ok) => {
+        if (!ok || value == null) return;
+        this.liveStats[name] = value as ClassLiveStats;
+        this._onChange.fire(undefined);
+      }));
+    }
   }
 
   getTreeItem(node: Node): vscode.TreeItem {
@@ -167,6 +186,8 @@ export class SchedulerProvider
 
   dispose(): void {
     if (this.pollTimer) clearInterval(this.pollTimer);
+    for (const sub of this.statMonitors.values()) sub.dispose();
+    this.statMonitors.clear();
     for (const d of this.disposables) d.dispose();
     this._onChange.dispose();
   }

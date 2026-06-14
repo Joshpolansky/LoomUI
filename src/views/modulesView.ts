@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import type { LoomClient } from '../api/client';
-import type { LiveStream, LiveUpdate } from '../api/liveStream';
-import { MODULE_STATES, type ModuleInfo } from '../api/types';
+import type { OpcuaClient } from '../api/opcuaClient';
+import { statsNode } from '../api/nodeId';
+import { MODULE_STATES, type ModuleInfo, type ModuleStats } from '../api/types';
 import { serverUrl } from '../util/paths';
 
 type Node = StatusNode | StateGroupNode | ModuleNode;
@@ -32,17 +33,18 @@ export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Di
   private pollTimer: NodeJS.Timeout | null = null;
   private inflight = false;
   private readonly disposables: vscode.Disposable[] = [];
+  /** Live per-module stats monitors, keyed by module id. */
+  private readonly statMonitors = new Map<string, vscode.Disposable>();
 
   constructor(
     private readonly client: LoomClient,
-    private readonly live: LiveStream,
+    private readonly opc: OpcuaClient,
   ) {
     this.startPolling();
     this.disposables.push(
-      this.live.onLive((u) => this.applyLive(u)),
-      this.live.onConnectionChange((connected) => {
+      this.opc.onConnectionChange((connected) => {
         // On reconnect, re-fetch the module list to catch instantiate/remove
-        // events the WS doesn't broadcast.
+        // events; subscriptions resume automatically.
         if (connected) void this.poll();
         else this._onDidChange.fire(undefined);
       }),
@@ -71,20 +73,27 @@ export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Di
       this.httpReachable = false;
     } finally {
       this.inflight = false;
+      this.reconcileMonitors();
       this._onDidChange.fire(undefined);
     }
   }
 
-  /** Patch in-memory module stats from a live frame, then refresh affected nodes. */
-  private applyLive(u: LiveUpdate): void {
-    let mutated = false;
-    for (const m of this.modules) {
-      const live = u.modules[m.id];
-      if (!live?.stats) continue;
-      m.stats = live.stats;
-      mutated = true;
+  /** Add/drop per-module stats subscriptions so they track the current list. */
+  private reconcileMonitors(): void {
+    const ids = new Set(this.modules.map((m) => m.id));
+    for (const [id, sub] of this.statMonitors) {
+      if (!ids.has(id)) { sub.dispose(); this.statMonitors.delete(id); }
     }
-    if (mutated) this._onDidChange.fire(undefined);
+    for (const id of ids) {
+      if (this.statMonitors.has(id)) continue;
+      this.statMonitors.set(id, this.opc.monitor(statsNode(id), (value, ok) => {
+        if (!ok || value == null) return;
+        const m = this.modules.find((x) => x.id === id);
+        if (!m) return;
+        m.stats = value as ModuleStats;
+        this._onDidChange.fire(undefined);
+      }));
+    }
   }
 
   getTreeItem(node: Node): vscode.TreeItem {
@@ -156,7 +165,7 @@ export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Di
 
   getChildren(node?: Node): Node[] {
     if (!node) {
-      const status = new StatusNode(this.httpReachable, this.live.connected, serverUrl());
+      const status = new StatusNode(this.httpReachable, this.opc.connected, serverUrl());
       const byState = new Map<number, ModuleInfo[]>();
       for (const m of this.modules) {
         const arr = byState.get(m.state) ?? [];
@@ -179,6 +188,8 @@ export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Di
 
   dispose(): void {
     if (this.pollTimer) clearInterval(this.pollTimer);
+    for (const sub of this.statMonitors.values()) sub.dispose();
+    this.statMonitors.clear();
     for (const d of this.disposables) d.dispose();
     this._onDidChange.dispose();
   }

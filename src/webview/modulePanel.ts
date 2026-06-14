@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { LoomClient } from '../api/client';
-import type { LiveStream, LiveUpdate } from '../api/liveStream';
+import type { OpcuaClient } from '../api/opcuaClient';
+import { moduleNode } from '../api/nodeId';
 import {
   type ModuleDetail,
   type ServiceInfo,
@@ -30,12 +31,12 @@ export class ModulePanel {
   static show(
     context: vscode.ExtensionContext,
     client: LoomClient,
-    live: LiveStream,
+    opc: OpcuaClient,
     moduleId: string,
   ): void {
     const existing = this.open.get(moduleId);
     if (existing) { existing.panel.reveal(); return; }
-    const panel = new ModulePanel(context, client, live, moduleId);
+    const panel = new ModulePanel(context, client, opc, moduleId);
     this.open.set(moduleId, panel);
     panel.panel.onDidDispose(() => this.open.delete(moduleId));
   }
@@ -49,7 +50,7 @@ export class ModulePanel {
   private constructor(
     _context: vscode.ExtensionContext,
     private readonly client: LoomClient,
-    private readonly live: LiveStream,
+    private readonly opc: OpcuaClient,
     private readonly moduleId: string,
   ) {
     this.panel = vscode.window.createWebviewPanel(
@@ -61,12 +62,15 @@ export class ModulePanel {
     this.panel.iconPath = new vscode.ThemeIcon('window');
     this.panel.webview.html = this.html();
 
-    // The runtime section is only streamed to explicit subscribers.
-    this.live.subscribeRuntime(moduleId);
-
+    // Stream the live (server-derived) sections via OPC-UA subscriptions.
     this.disposables.push(
       this.panel.webview.onDidReceiveMessage((m) => void this.onMessage(m as WebviewMessage)),
-      this.live.onLive((u) => this.applyLive(u)),
+      this.opc.monitor(moduleNode(moduleId, 'runtime'), (value, ok) => {
+        if (ok && value != null) this.send({ type: 'live', runtime: value });
+      }),
+      this.opc.monitor(moduleNode(moduleId, 'summary'), (value, ok) => {
+        if (ok && value != null) this.send({ type: 'live', summary: value });
+      }),
     );
     this.panel.onDidDispose(() => this.dispose());
 
@@ -95,17 +99,6 @@ export class ModulePanel {
       data: this.detail?.data ?? { config: {}, recipe: {}, runtime: {}, summary: {} },
       services: this.services.map((s) => ({ name: s.name, short: s.name.slice(this.moduleId.length + 1), skeleton: schemaSkeleton(s.schema) })),
       states: MODULE_STATES,
-    });
-  }
-
-  private applyLive(u: LiveUpdate): void {
-    const m = u.modules[this.moduleId];
-    if (!m) return;
-    this.send({
-      type: 'live',
-      runtime: m.runtime ?? null,
-      summary: m.summary ?? null,
-      stats: m.stats ?? null,
     });
   }
 
@@ -165,7 +158,6 @@ export class ModulePanel {
   }
 
   private dispose(): void {
-    this.live.unsubscribeRuntime(this.moduleId);
     for (const d of this.disposables) d.dispose();
   }
 

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { LoomClient } from '../api/client';
-import type { LiveStream } from '../api/liveStream';
+import type { OpcuaClient } from '../api/opcuaClient';
 import type { DataSection } from '../api/types';
 import { LoomDebugSession } from './loomDebugSession';
 
@@ -12,14 +12,14 @@ export class LoomDebugAdapterFactory implements vscode.DebugAdapterDescriptorFac
 
   constructor(
     private readonly client: LoomClient,
-    private readonly live: LiveStream,
+    private readonly opc: OpcuaClient,
   ) {}
 
   createDebugAdapterDescriptor(
     session: vscode.DebugSession,
     _executable: vscode.DebugAdapterExecutable | undefined,
   ): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
-    const adapter = new LoomDebugSession(this.client, this.live);
+    const adapter = new LoomDebugSession(this.client, this.opc);
     this.sessions.add(adapter);
     // Clean up when the underlying session ends. The DebugSession itself
     // doesn't expose a 'closed' event; the descriptor wrapper does.
