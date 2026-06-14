@@ -2,6 +2,9 @@
 
 All notable changes to the Loom VSCode extension.
 
+# 0.1.5 - Allow users to select loom runtime build version
+        - Move to subscription based reading for debugging
+
 ## 0.1.0 — Initial preview release
 
 - Activity-bar side panel with Modules, Scheduler, Bus, and I/O Mappings views, refreshed live over WebSocket.

@@ -2,7 +2,7 @@
   "name": "loom-workbench",
   "displayName": "Loom Workbench",
   "description": "Side-panel UI and debug commands for the Loom runtime.",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "publisher": "ajoshp",
   "preview": true,
   "license": "Apache-2.0",
@@ -599,8 +599,8 @@
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.90.0",
     "@types/ws": "^8.18.1",
-    "@vscode/vsce": "^3.9.1",
-    "esbuild": "^0.25.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.1",
     "typescript": "^5.5.0"
   },
   "dependencies": {
