@@ -62,6 +62,16 @@ export class OpcuaClient implements vscode.Disposable {
   private readonly _onConnect = new vscode.EventEmitter<boolean>();
   readonly onConnectionChange = this._onConnect.event;
 
+  /** Fires when the runtime is reachable but lacks the OPC-UA facade (the
+   *  session endpoint 404s) — i.e. the runtime is too old and needs updating. */
+  private readonly _onUnsupported = new vscode.EventEmitter<void>();
+  readonly onUnsupported = this._onUnsupported.event;
+
+  /** Sticky: true once we've detected a too-old runtime. Lets a listener that
+   *  attaches after detection still react (no activation-time race). */
+  private _unsupported = false;
+  get unsupported(): boolean { return this._unsupported; }
+
   private _connected = false;
   get connected(): boolean { return this._connected; }
 
@@ -131,6 +141,7 @@ export class OpcuaClient implements vscode.Disposable {
     this.teardown();
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     this._onConnect.dispose();
+    this._onUnsupported.dispose();
     this.byNode.clear();
     this.byHandle.clear();
   }
@@ -166,10 +177,25 @@ export class OpcuaClient implements vscode.Disposable {
   private sessionPromise: Promise<number> | null = null;
 
   private async createSession(): Promise<number> {
-    const s = await this.fetchJson<{ id: number }>(
-      '/api/1.0/opcua/sessions',
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ timeout: SESSION_TIMEOUT_MS }) },
-    );
+    let s: { id: number };
+    try {
+      s = await this.fetchJson<{ id: number }>(
+        '/api/1.0/opcua/sessions',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ timeout: SESSION_TIMEOUT_MS }) },
+      );
+    } catch (e) {
+      // Distinguish "runtime too old (no OPC-UA facade)" from "runtime down".
+      // A 404/405 proves the server answered but the route is missing. For any
+      // other failure (e.g. a static handler returning non-JSON HTML, or a
+      // dropped connection), fall back to probing plain REST: if /api/modules
+      // is reachable, the runtime is up but lacks the facade → too old.
+      const status = (e as { status?: number }).status;
+      if (status === 404 || status === 405 || await this.restReachable()) {
+        this._unsupported = true;
+        this._onUnsupported.fire();
+      }
+      throw e;
+    }
     this.sessionId = s.id;
     const interval = vscode.workspace.getConfiguration('loom')
       .get<number>('publishingIntervalMs', DEFAULT_PUBLISHING_INTERVAL_MS);
@@ -190,6 +216,7 @@ export class OpcuaClient implements vscode.Disposable {
     ws.on('open', () => {
       if (this.ws !== ws) return;
       this.backoffMs = INITIAL_BACKOFF_MS;
+      this._unsupported = false;
       this._connected = true;
       this._onConnect.fire(true);
       // (Re)create every monitored item against the (possibly new) session.
@@ -317,9 +344,20 @@ export class OpcuaClient implements vscode.Disposable {
   private base(): string { return this.getBaseUrl().replace(/\/+$/, ''); }
   private wsBase(): string { return this.base().replace(/^http/i, 'ws'); }
 
+  /** True if the runtime answers plain REST — used to tell "facade missing"
+   *  (runtime too old) apart from "runtime down" when a session fails. */
+  private async restReachable(): Promise<boolean> {
+    try {
+      const res = await fetch(`${this.base()}/api/modules`, { method: 'GET' });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
   private async fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(`${this.base()}${path}`, init);
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText} — ${path}`);
+    if (!res.ok) throw httpError(res.status, res.statusText, path);
     return (await res.json()) as T;
   }
 
@@ -327,6 +365,14 @@ export class OpcuaClient implements vscode.Disposable {
     const res = await fetch(`${this.base()}${path}`, init);
     if (!res.ok) throw new Error(`${res.status} ${res.statusText} — ${path}`);
   }
+}
+
+/** An Error carrying the HTTP status so callers can distinguish a 404 (old
+ *  runtime, no facade) from a network failure (runtime down, no status). */
+function httpError(status: number, statusText: string, path: string): Error & { status: number } {
+  const err = new Error(`${status} ${statusText} — ${path}`) as Error & { status: number };
+  err.status = status;
+  return err;
 }
 
 function decodeFrame(data: RawData): string | null {

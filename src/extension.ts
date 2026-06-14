@@ -36,6 +36,34 @@ export function activate(context: vscode.ExtensionContext): void {
     runtime, opc, modulesProvider, schedulerProvider, busProvider, mappingsProvider,
   );
 
+  // If the runtime answers REST but lacks the OPC-UA live-data facade, it's too
+  // old for this extension's live updates — prompt the user to update it. Warn
+  // once per connection attempt cycle; re-arm after a successful connection so a
+  // later regression warns again.
+  let warnedUnsupported = false;
+  function onRuntimeTooOld(): void {
+    const out = getExtensionOutput();
+    out.appendLine(
+      'Loom runtime is reachable but has no OPC-UA live-data facade — the runtime binary is too old. Update it for live updates.',
+    );
+    if (warnedUnsupported) return;
+    warnedUnsupported = true;
+    out.appendLine('Showing "runtime too old" warning notification.');
+    void vscode.window.showWarningMessage(
+      'This Loom runtime does not support the live-data (OPC-UA) interface required by ' +
+      'Loom Workbench. Live updates and field editing are disabled until the runtime is updated.',
+      'Update Runtime…',
+    ).then((choice) => {
+      if (choice === 'Update Runtime…') void vscode.commands.executeCommand('loom.runtime.install');
+    });
+  }
+  context.subscriptions.push(
+    opc.onConnectionChange((connected) => { if (connected) warnedUnsupported = false; }),
+    opc.onUnsupported(() => onRuntimeTooOld()),
+  );
+  // In case detection already happened before this listener attached.
+  if (opc.unsupported) onRuntimeTooOld();
+
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('loom.modules',  modulesProvider),
     vscode.window.registerTreeDataProvider('loom.bus',      busProvider),
