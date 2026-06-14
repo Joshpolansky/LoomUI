@@ -71,6 +71,15 @@ export class ModulePanel {
       this.opc.monitor(moduleNode(moduleId, 'summary'), (value, ok) => {
         if (ok && value != null) this.send({ type: 'live', summary: value });
       }),
+      // config/recipe change rarely, but a hot-reload (new member) or a write
+      // from any client must still flow through. The pump's JSON-diff means
+      // these only send on an actual change, so subscribing them is near-free.
+      this.opc.monitor(moduleNode(moduleId, 'config'), (value, ok) => {
+        if (ok && value != null) this.send({ type: 'live', config: value });
+      }),
+      this.opc.monitor(moduleNode(moduleId, 'recipe'), (value, ok) => {
+        if (ok && value != null) this.send({ type: 'live', recipe: value });
+      }),
     );
     this.panel.onDidDispose(() => this.dispose());
 
@@ -107,8 +116,8 @@ export class ModulePanel {
       case 'patch': {
         try {
           await this.client.patchModuleData(this.moduleId, msg.section, msg.ptr, msg.value);
-          // config/recipe aren't streamed, so re-fetch to reflect the write.
-          if (msg.section === 'config' || msg.section === 'recipe') await this.refresh();
+          // All four sections are now streamed, so the write is reflected by the
+          // next subscription tick — no re-fetch needed.
         } catch (e) {
           this.toast(`Write failed: ${(e as Error).message}`, 'err');
         }
@@ -461,9 +470,35 @@ const SCRIPT = `
     if (!st.connected) { body.appendChild(el('p', { class: 'muted pad' }, 'Cannot reach the Loom runtime.')); return; }
     const sec = currentSection();
     const data = st.data[active] || {};
+    renderedShape = shapeOf(data);
     if (Object.keys(data).length === 0) { body.appendChild(el('p', { class: 'muted pad' }, 'No fields.')); return; }
     const editable = !sec.readOnly;
     body.appendChild(renderTree(data, [], editable, active, 0));
+  }
+
+  // Signature of a section's key structure (paths only, not values). When this
+  // changes between live updates the DOM tree is stale (a hot-reload added or
+  // removed a member), so we rebuild instead of patching values in place.
+  let renderedShape = '';
+  function shapeOf(data) {
+    const parts = [];
+    (function walk(v, p) {
+      if (v !== null && typeof v === 'object') {
+        const keys = Object.keys(v).sort();
+        for (const k of keys) { parts.push(p + '/' + k); walk(v[k], p + '/' + k); }
+      }
+    })(data, '');
+    return parts.join('|');
+  }
+
+  // Apply a live section update: full re-render on a structural change (so new
+  // members appear / removed ones disappear), otherwise a cheap in-place value
+  // patch that preserves scroll position and any field being edited.
+  function applyLive(section, data) {
+    st.data[section] = data;
+    if (active !== section) return;
+    if (shapeOf(data) !== renderedShape) renderBody();
+    else patchValues(section, data);
   }
 
   function patchValues(section, data, prefix) {
@@ -553,8 +588,10 @@ const SCRIPT = `
         renderHeader(); renderTabs(); renderDisk(); renderBody(); renderRpc();
         break;
       case 'live':
-        if (msg.runtime) { st.data.runtime = msg.runtime; if (active === 'runtime') patchValues('runtime', msg.runtime); }
-        if (msg.summary) { st.data.summary = msg.summary; if (active === 'summary') patchValues('summary', msg.summary); }
+        if (msg.runtime) applyLive('runtime', msg.runtime);
+        if (msg.summary) applyLive('summary', msg.summary);
+        if (msg.config)  applyLive('config',  msg.config);
+        if (msg.recipe)  applyLive('recipe',  msg.recipe);
         break;
       case 'callResult': {
         const call = document.querySelector('.rpc-call[data-svc="' + msg.name + '"] .rpc-result');

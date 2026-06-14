@@ -341,6 +341,18 @@ export class LoomDebugSession extends DebugSession {
           det.stats = value as ModuleStats;
           this.scheduleInvalidate();
         }),
+        this.opc.monitor(moduleNode(moduleId, 'config'), (value, ok) => {
+          const det = this.details.get(moduleId);
+          if (!ok || value == null || !det) return;
+          det.data.config = value as Record<string, unknown>;
+          this.scheduleInvalidate();
+        }),
+        this.opc.monitor(moduleNode(moduleId, 'recipe'), (value, ok) => {
+          const det = this.details.get(moduleId);
+          if (!ok || value == null || !det) return;
+          det.data.recipe = value as Record<string, unknown>;
+          this.scheduleInvalidate();
+        }),
       ]);
     }
     return d;
