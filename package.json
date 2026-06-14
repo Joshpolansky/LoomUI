@@ -467,6 +467,7 @@
           "description": "Optional: path to a local Loom source checkout. When set, the runtime/module/data paths default to ${loom.repoPath}/output/loom, ${loom.repoPath}/output/modules, and ${loom.repoPath}/data respectively. Supports ${workspaceFolder}."
         },
         "loom.runtimeExecutable": {
+          "scope": "machine-overridable",
           "type": "string",
           "default": "",
           "description": "Path to the loom binary. Set this directly, run \"Loom: Install Loom Runtime\" to download a release, or set loom.repoPath to derive from a source checkout. Supports ${workspaceFolder}."
@@ -481,11 +482,13 @@
           "description": "Active runtime profile used for executable/module directory resolution. Use 'Loom: Select Runtime Profile...' to switch quickly."
         },
         "loom.runtimeExecutableDebug": {
+          "scope": "machine-overridable",
           "type": "string",
           "default": "",
           "description": "Path to the Debug loom binary. Set automatically by 'Loom: Install Loom Runtime'."
         },
         "loom.runtimeExecutableRelease": {
+          "scope": "machine-overridable",
           "type": "string",
           "default": "",
           "description": "Path to the Release loom binary. Set automatically by 'Loom: Install Loom Runtime'."
@@ -506,16 +509,19 @@
           "description": "Release user module directory. Checked before loom.userModuleDir when runtimeProfile=release."
         },
         "loom.systemModuleDir": {
+          "scope": "machine-overridable",
           "type": "string",
           "default": "",
           "description": "System / example module directory bundled with the Loom release. Set automatically by 'Loom: Install Loom Runtime'."
         },
         "loom.systemModuleDirDebug": {
+          "scope": "machine-overridable",
           "type": "string",
           "default": "",
           "description": "Debug system/example module directory bundled with the Loom release."
         },
         "loom.systemModuleDirRelease": {
+          "scope": "machine-overridable",
           "type": "string",
           "default": "",
           "description": "Release system/example module directory bundled with the Loom release."
