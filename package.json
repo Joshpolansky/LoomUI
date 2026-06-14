@@ -600,6 +600,6 @@
   "dependencies": {
     "@vscode/debugadapter": "^1.68.0",
     "@vscode/debugprotocol": "^1.68.0",
-    "ws": "^8.20.0"
+    "ws": "^8.20.1"
   }
 }
