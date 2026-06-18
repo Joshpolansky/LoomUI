@@ -106,7 +106,7 @@ export class ModulePanel {
         ? { state: this.detail.state, version: this.detail.version, className: this.detail.className }
         : null,
       data: this.detail?.data ?? { config: {}, recipe: {}, runtime: {}, summary: {} },
-      services: this.services.map((s) => ({ name: s.name, short: s.name.slice(this.moduleId.length + 1), skeleton: schemaSkeleton(s.schema) })),
+      services: this.services.map((s) => ({ name: s.name, short: s.name.slice(this.moduleId.length + 1), fields: schemaFields(s.schema) })),
       states: MODULE_STATES,
     });
   }
@@ -229,23 +229,65 @@ function makeNonce(): string {
   return result;
 }
 
-/** Best-effort request skeleton from a JSON schema (mirrors moduleCommands.schemaPlaceholder). */
-function schemaSkeleton(schema: Record<string, unknown> | null): string {
-  if (!schema) return '{}';
-  const props = (schema as { properties?: Record<string, { type?: string }> }).properties;
-  if (!props) return '{}';
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(props)) {
-    switch (v.type) {
-      case 'number': case 'integer': out[k] = 0; break;
-      case 'boolean': out[k] = false; break;
-      case 'string': out[k] = ''; break;
-      case 'array': out[k] = []; break;
-      case 'object': out[k] = {}; break;
-      default: out[k] = null;
+/** A normalized request-parameter node derived from a service's JSON schema.
+ *  Nested objects carry `fields`; leaves carry a type + default for the form. */
+interface SvcField {
+  key: string;
+  type: 'object' | 'array' | 'number' | 'integer' | 'boolean' | 'string';
+  default: unknown;
+  description?: string;
+  enumValues?: unknown[];
+  fields?: SvcField[];
+}
+
+/** Resolve a glaze JSON schema into a nested SvcField tree, following $ref/$defs.
+ *  The webview renders this as a checkbox-gated tree form (no raw JSON). */
+function schemaFields(schema: Record<string, unknown> | null): SvcField[] {
+  if (!schema) return [];
+  const defs = (schema.$defs ?? {}) as Record<string, Record<string, unknown>>;
+
+  const resolve = (def: Record<string, unknown>): Record<string, unknown> => {
+    if (def && typeof def.$ref === 'string') {
+      const name = def.$ref.split('/').pop() ?? '';
+      const r = defs[name];
+      if (r) return { ...r, ...def };
     }
-  }
-  return JSON.stringify(out);
+    return def;
+  };
+
+  const typeOf = (def: Record<string, unknown>): SvcField['type'] => {
+    const t = def.type;
+    const s = Array.isArray(t) ? String(t[0]) : t != null ? String(t) : def.properties ? 'object' : 'string';
+    return s as SvcField['type'];
+  };
+
+  const defaultFor = (def: Record<string, unknown>, type: SvcField['type']): unknown => {
+    if ('default' in def) return def.default;
+    switch (type) {
+      case 'number': case 'integer': return 0;
+      case 'boolean': return false;
+      case 'string': return '';
+      case 'array': return [];
+      case 'object': return {};
+      default: return null;
+    }
+  };
+
+  const build = (props: Record<string, Record<string, unknown>>): SvcField[] =>
+    Object.keys(props).map((key) => {
+      const def = resolve(props[key]);
+      const type = typeOf(def);
+      const field: SvcField = { key, type, default: defaultFor(def, type) };
+      if (typeof def.description === 'string') field.description = def.description;
+      if (Array.isArray(def.enum)) field.enumValues = def.enum;
+      if (type === 'object' && def.properties) {
+        field.fields = build(def.properties as Record<string, Record<string, unknown>>);
+      }
+      return field;
+    });
+
+  const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
+  return build(props);
 }
 
 // ---------- inlined webview assets ----------
@@ -255,9 +297,10 @@ const STYLE = `
 body {
   font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);
   color: var(--vscode-foreground); background: var(--vscode-editor-background);
-  margin: 0; padding: 0 0 32px 0;
+  margin: 0; padding: 0;
+  height: 100vh; display: flex; flex-direction: column; overflow: hidden;
 }
-header { padding: 12px 18px 8px; border-bottom: 1px solid var(--vscode-panel-border); }
+header { padding: 12px 18px 8px; border-bottom: 1px solid var(--vscode-panel-border); flex: none; }
 .hdr-main { display: flex; align-items: center; gap: 10px; }
 header h2 { margin: 0; font-size: 1.05em; font-weight: 600; }
 header .actions { display: flex; gap: 8px; margin-top: 8px; }
@@ -269,14 +312,14 @@ header #meta { font-size: 0.82em; display: block; margin-top: 4px; }
 .badge.off { background: var(--vscode-charts-orange, #d97706); color: #fff; }
 .muted { color: var(--vscode-descriptionForeground); }
 .pad { padding: 6px 18px; }
-.tabs { display: flex; gap: 2px; padding: 8px 18px 0; flex-wrap: wrap; }
+.tabs { display: flex; gap: 2px; padding: 8px 18px 0; flex-wrap: wrap; flex: none; }
 .tab { background: transparent; color: var(--vscode-foreground); border: none;
   border-bottom: 2px solid transparent; padding: 5px 12px; cursor: pointer;
   font-family: inherit; font-size: 0.9em; }
 .tab.active { border-bottom-color: var(--vscode-focusBorder); font-weight: 600; }
 .tab .ro { font-size: 0.72em; color: var(--vscode-descriptionForeground); margin-left: 5px; }
-.disk { display: flex; gap: 8px; padding: 8px 18px 0; }
-main { padding: 10px 18px; }
+.disk { display: flex; gap: 8px; padding: 8px 18px 0; flex: none; }
+main { padding: 10px 18px; flex: 2 1 0; min-height: 0; overflow-y: auto; }
 .btn { background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
   color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
   border: 1px solid transparent; padding: 3px 10px; cursor: pointer; font-size: 0.85em;
@@ -308,19 +351,41 @@ main { padding: 10px 18px; }
 .dt-children { margin-left: 0; }
 
 /* rpc */
-#rpc { padding: 6px 18px 14px; border-top: 1px solid var(--vscode-panel-border); margin-top: 8px; }
+#rpc { padding: 6px 18px 6px; border-top: 1px solid var(--vscode-panel-border);
+  flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
 #rpc h3 { font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--vscode-descriptionForeground); font-weight: 600; margin: 10px 0 8px; }
+  color: var(--vscode-descriptionForeground); font-weight: 600; margin: 6px 0 8px; flex: none; }
+#rpc-body { flex: 1 1 0; min-height: 0; overflow: hidden; }
+.rpc-split { display: flex; gap: 16px; height: 100%; min-height: 0; }
+.rpc-list { flex: none; min-width: 140px; max-width: 240px; border-right: 1px solid var(--vscode-panel-border);
+  padding-right: 8px; min-height: 0; overflow-y: auto; }
+.rpc-call { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; }
 .rpc-item { display: flex; align-items: center; gap: 8px; padding: 5px 8px; cursor: pointer; border-radius: 2px; }
 .rpc-item:hover { background: var(--vscode-list-hoverBackground); }
 .rpc-item.selected { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
 .rpc-name { font-weight: 600; }
 .schema-badge { font-size: 0.68em; padding: 0 6px; border-radius: 8px;
   background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); }
-.rpc-call { margin-top: 8px; }
 .rpc-raw { width: 100%; box-sizing: border-box; background: var(--vscode-input-background);
   color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, transparent);
   font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85em; padding: 6px; border-radius: 2px; }
+
+/* service param form */
+.svc-form { margin: 4px 0 10px; }
+.svc-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+.svc-check { margin: 0; cursor: pointer; flex: none; }
+.svc-key { flex: 1; min-width: 0; color: var(--vscode-symbolIcon-propertyForeground, var(--vscode-foreground)); }
+.svc-key.excluded { color: var(--vscode-descriptionForeground); text-decoration: line-through; }
+.svc-type { font-size: 0.74em; color: var(--vscode-descriptionForeground); margin-left: 6px; }
+.svc-group-key { font-weight: 600; }
+.svc-input, .svc-select { background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, transparent); padding: 2px 6px;
+  font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85em; border-radius: 2px;
+  width: 150px; text-align: right; }
+.svc-input:focus, .svc-select:focus { outline: 1px solid var(--vscode-focusBorder); }
+.svc-input:disabled, .svc-select:disabled { opacity: 0.4; }
+.svc-children { /* indentation applied inline per depth */ }
+.svc-empty { color: var(--vscode-descriptionForeground); font-size: 0.85em; padding: 2px 0 6px; }
 .rpc-result { background: var(--vscode-textCodeBlock-background); padding: 8px; border-radius: 2px;
   font-family: var(--vscode-editor-font-family, monospace); font-size: 0.82em; white-space: pre-wrap; overflow-x: auto; }
 
@@ -543,29 +608,121 @@ const SCRIPT = `
     document.getElementById('meta').textContent = st.info ? ('v' + st.info.version) : '';
   }
 
+  function coerceField(raw, type, fallback) {
+    if (type === 'number' || type === 'integer') { const n = Number(raw); return raw === '' || isNaN(n) ? (typeof fallback === 'number' ? fallback : 0) : n; }
+    if (type === 'boolean') return raw === 'true' || raw === true;
+    if (type === 'array' || type === 'object') { try { return JSON.parse(raw); } catch (e) { return fallback; } }
+    return raw;
+  }
+
+  function setNested(obj, parts, val) {
+    let cur = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const k = parts[i];
+      if (typeof cur[k] !== 'object' || cur[k] == null) cur[k] = {};
+      cur = cur[k];
+    }
+    cur[parts[parts.length - 1]] = val;
+  }
+
+  // Build a checkbox-gated form for a service's parameter tree.
+  // 'leaves' collects { path, included(), value() } so Call can assemble the body.
+  function buildServiceForm(fields, depth, prefix, leaves) {
+    const wrap = el('div', { class: 'svc-children' });
+    for (const f of fields) {
+      const pathArr = prefix.concat(f.key);
+      const indent = depth * 16;
+      const check = el('input', { type: 'checkbox', class: 'svc-check' });
+      check.checked = true;
+
+      if (f.type === 'object' && f.fields && f.fields.length) {
+        const keyLabel = el('span', { class: 'svc-key svc-group-key', text: f.key });
+        const row = el('div', { class: 'svc-row', style: 'padding-left:' + indent + 'px' },
+          check, keyLabel, el('span', { class: 'svc-type', text: '{' + f.fields.length + '}' }));
+        const childLeaves = [];
+        const children = buildServiceForm(f.fields, depth + 1, pathArr, childLeaves);
+        // The group checkbox toggles every descendant's checkbox + inputs.
+        check.addEventListener('change', function () {
+          for (const child of childLeaves) child.setEnabled(check.checked);
+          keyLabel.classList.toggle('excluded', !check.checked);
+        });
+        for (const cl of childLeaves) leaves.push(cl);
+        wrap.appendChild(row);
+        wrap.appendChild(children);
+        continue;
+      }
+
+      // Leaf field — pick an input by type.
+      let input;
+      if (f.type === 'boolean') {
+        input = el('select', { class: 'svc-select' },
+          el('option', { value: 'true', text: 'true' }),
+          el('option', { value: 'false', text: 'false' }));
+        input.value = f.default ? 'true' : 'false';
+      } else if (f.enumValues && f.enumValues.length) {
+        input = el('select', { class: 'svc-select' });
+        for (const ev of f.enumValues) input.appendChild(el('option', { value: String(ev), text: String(ev) }));
+        input.value = String(f.default != null ? f.default : f.enumValues[0]);
+      } else {
+        const isNum = f.type === 'number' || f.type === 'integer';
+        const isJson = f.type === 'array' || f.type === 'object';
+        input = el('input', {
+          class: 'svc-input',
+          type: isNum ? 'number' : 'text',
+          value: isJson ? JSON.stringify(f.default) : String(f.default != null ? f.default : ''),
+          placeholder: f.description || f.type,
+        });
+      }
+
+      const keyLabel = el('span', { class: 'svc-key', text: f.key },
+        el('span', { class: 'svc-type', text: f.type }));
+      const row = el('div', { class: 'svc-row', style: 'padding-left:' + indent + 'px' }, check, keyLabel, input);
+      check.addEventListener('change', function () {
+        input.disabled = !check.checked;
+        keyLabel.classList.toggle('excluded', !check.checked);
+      });
+      leaves.push({
+        path: pathArr,
+        included: function () { return check.checked; },
+        value: function () { return coerceField(input.value, f.type, f.default); },
+        setEnabled: function (on) { check.checked = on; input.disabled = !on; keyLabel.classList.toggle('excluded', !on); },
+      });
+      wrap.appendChild(row);
+    }
+    return wrap;
+  }
+
   function renderRpc() {
     const c = document.getElementById('rpc-body');
     c.innerHTML = '';
     if (st.services.length === 0) { c.appendChild(el('p', { class: 'muted pad' }, 'No services registered for this module.')); return; }
-    const list = el('div', {});
+    const split = el('div', { class: 'rpc-split' });
+    const list = el('div', { class: 'rpc-list' });
     for (const svc of st.services) {
+      const hasParams = svc.fields && svc.fields.length;
       list.appendChild(el('div', {
         class: 'rpc-item' + (selectedSvc && selectedSvc.name === svc.name ? ' selected' : ''),
         onclick: (function (s) { return function () { selectedSvc = s; renderRpc(); }; })(svc),
-      }, el('span', { class: 'rpc-name', text: svc.short }), svc.skeleton !== '{}' ? el('span', { class: 'schema-badge', text: 'schema' }) : null));
+      }, el('span', { class: 'rpc-name', text: svc.short }), hasParams ? el('span', { class: 'schema-badge', text: 'schema' }) : null));
     }
-    c.appendChild(list);
+    split.appendChild(list);
+    c.appendChild(split);
     if (selectedSvc) {
-      const ta = el('textarea', { class: 'rpc-raw', rows: '4', spellcheck: 'false' });
-      ta.value = selectedSvc.skeleton || '{}';
       const result = el('pre', { class: 'rpc-result' }, '');
       result.hidden = true;
+      const leaves = [];
+      const fields = selectedSvc.fields || [];
+      const form = fields.length
+        ? el('div', { class: 'svc-form' }, buildServiceForm(fields, 0, [], leaves))
+        : el('div', { class: 'svc-empty' }, 'No parameters — calls with an empty request.');
       const callBtn = el('button', { class: 'btn primary', onclick: function () {
-        post({ type: 'call', name: selectedSvc.name, body: ta.value });
+        const out = {};
+        for (const lf of leaves) { if (lf.included()) setNested(out, lf.path, lf.value()); }
+        post({ type: 'call', name: selectedSvc.name, body: JSON.stringify(out) });
       } }, 'Call');
-      const call = el('div', { class: 'rpc-call' }, ta, el('div', { style: 'margin-top:6px' }, callBtn), result);
+      const call = el('div', { class: 'rpc-call' }, form, el('div', { style: 'margin-top:6px' }, callBtn), result);
       call.dataset.svc = selectedSvc.name;
-      c.appendChild(call);
+      split.appendChild(call);
     }
   }
 
