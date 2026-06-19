@@ -33,7 +33,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const schedulerProvider = new SchedulerProvider(client, opc);
   const busProvider       = new BusProvider(client);
   const mappingsProvider  = new MappingsProvider(client);
-  const faultsProvider    = new FaultsProvider(client, opc);
+  const faultsProvider    = new FaultsProvider();
 
   context.subscriptions.push(
     runtime, opc, modulesProvider, schedulerProvider, busProvider, mappingsProvider, faultsProvider,
@@ -87,7 +87,7 @@ export function activate(context: vscode.ExtensionContext): void {
   registerMappingCommands(context, client, mappingsProvider);
   registerProjectCommands(context);
   registerDebugCommands(context, runtime);
-  registerFaultCommands(context, client, faultsProvider);
+  registerFaultCommands(context, faultsProvider);
 
   // --- DAP-based module inspector ---
   const inspectorFactory = new LoomDebugAdapterFactory(client, opc);

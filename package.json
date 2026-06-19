@@ -266,6 +266,26 @@
       {
         "command": "loom.faults.openFrame",
         "title": "Loom: Open Crash Frame Source"
+      },
+      {
+        "command": "loom.faults.openFile",
+        "title": "Loom: Open Crash Report File...",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "loom.faults.addFolder",
+        "title": "Loom: Add Crash Folder...",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "loom.faults.addRuntime",
+        "title": "Loom: Add Runtime Crash Source...",
+        "icon": "$(radio-tower)"
+      },
+      {
+        "command": "loom.faults.removeSource",
+        "title": "Loom: Remove Crash Source",
+        "icon": "$(close)"
       }
     ],
     "menus": {
@@ -334,6 +354,21 @@
           "command": "loom.mappings.refresh",
           "when": "view == loom.mappings",
           "group": "navigation@9"
+        },
+        {
+          "command": "loom.faults.openFile",
+          "when": "view == loom.faults",
+          "group": "navigation@1"
+        },
+        {
+          "command": "loom.faults.addFolder",
+          "when": "view == loom.faults",
+          "group": "navigation@2"
+        },
+        {
+          "command": "loom.faults.addRuntime",
+          "when": "view == loom.faults",
+          "group": "navigation@3"
         },
         {
           "command": "loom.faults.refresh",
@@ -428,6 +463,11 @@
           "command": "loom.faults.openReport",
           "when": "view == loom.faults && viewItem == fault",
           "group": "0_open@1"
+        },
+        {
+          "command": "loom.faults.removeSource",
+          "when": "view == loom.faults && viewItem == faultSourceRemovable",
+          "group": "inline@1"
         }
       ],
       "commandPalette": [
@@ -445,6 +485,10 @@
         },
         {
           "command": "loom.faults.openFrame",
+          "when": "false"
+        },
+        {
+          "command": "loom.faults.removeSource",
           "when": "false"
         }
       ]

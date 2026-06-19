@@ -1,20 +1,18 @@
 import * as vscode from 'vscode';
 import * as fsSync from 'fs';
 import * as path from 'path';
-import type { LoomClient } from '../api/client';
 import type { FaultsProvider } from '../views/faultsView';
 import { FaultNode } from '../views/faultsView';
+import { DiskFaultSource } from '../api/faultSource';
 import { FaultPanel } from '../webview/faultPanel';
-import { resolvePaths } from '../util/paths';
+import { resolvePaths, serverUrl } from '../util/paths';
 import { getExtensionOutput } from '../util/output';
 
 /**
- * Resolve a build-time source path to one that exists on this machine, then
- * jump to the given line. Strategy (mirrors loom.modules.openSource):
+ * Resolve a build-time source path to one that exists on this machine, then jump
+ * to the given line (mirrors loom.modules.openSource):
  *   1. The absolute path captured at build time (dev builds, same machine).
- *   2. Remap under loom.repoPath by the repo-directory name (crash from another
- *      checkout / CI of the same tree).
- * Returns the resolved path, or undefined if it can't be located.
+ *   2. Remap under loom.repoPath by the repo-directory name (another checkout).
  */
 function resolveSourcePath(file: string): string | undefined {
   if (!file) return undefined;
@@ -35,7 +33,6 @@ function resolveSourcePath(file: string): string | undefined {
 
 export function registerFaultCommands(
   context: vscode.ExtensionContext,
-  client: LoomClient,
   view: FaultsProvider,
 ): void {
   const out = getExtensionOutput();
@@ -43,30 +40,64 @@ export function registerFaultCommands(
   context.subscriptions.push(
     vscode.commands.registerCommand('loom.faults.refresh', () => view.refresh()),
 
-    vscode.commands.registerCommand('loom.faults.openReport', async (idOrNode: unknown) => {
-      let id: string | undefined;
-      if (idOrNode instanceof FaultNode) id = idOrNode.info.id;
-      else if (typeof idOrNode === 'string') id = idOrNode;
-      else {
-        try {
-          const list = await client.getFaults();
-          if (list.length === 0) { vscode.window.showInformationMessage('No faults recorded.'); return; }
-          const pick = await vscode.window.showQuickPick(
-            list.map((f) => ({
-              label: `${f.module || '(runtime)'} · ${f.phase || '?'}`,
-              description: `${f.kind}${f.reason ? ' · ' + f.reason : ''}`,
-              id: f.id,
-            })),
-            { placeHolder: 'Open crash report' },
-          );
-          id = pick?.id;
-        } catch (e) {
-          vscode.window.showErrorMessage(`Cannot reach Loom: ${(e as Error).message}`);
-          return;
-        }
+    // Open a report. From the tree it gets a FaultNode (carries its source);
+    // from the palette it has no arg, so prompt for a file to open directly.
+    vscode.commands.registerCommand('loom.faults.openReport', async (node: unknown) => {
+      if (node instanceof FaultNode) {
+        FaultPanel.show(context, node.source, node.info.id);
+        return;
       }
-      if (!id) return;
-      FaultPanel.show(context, client, id);
+      await vscode.commands.executeCommand('loom.faults.openFile');
+    }),
+
+    // Pick a crash file (.json / .txt) and open it directly — no runtime, no
+    // source management. The file's folder becomes an ad-hoc disk source.
+    vscode.commands.registerCommand('loom.faults.openFile', async () => {
+      const { dataDir } = resolvePaths();
+      const defaultDir = path.join(dataDir, 'crash');
+      const picked = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        openLabel: 'Open Crash Report',
+        defaultUri: fsSync.existsSync(defaultDir) ? vscode.Uri.file(defaultDir) : undefined,
+        filters: { 'Crash reports': ['json', 'txt'], 'All files': ['*'] },
+      });
+      if (!picked || picked.length === 0) return;
+      const file = picked[0].fsPath;
+      const dir = path.dirname(file);
+      const id = path.basename(file, path.extname(file));
+      const source = new DiskFaultSource(dir, path.basename(dir) || dir, true);
+      FaultPanel.show(context, source, id);
+      out.appendLine(`Opened crash report ${file}.`);
+    }),
+
+    // Add a folder of crash files as a persistent (session) source.
+    vscode.commands.registerCommand('loom.faults.addFolder', async () => {
+      const picked = await vscode.window.showOpenDialog({
+        canSelectFolders: true,
+        canSelectFiles: false,
+        canSelectMany: false,
+        openLabel: 'Add Crash Folder',
+      });
+      if (!picked || picked.length === 0) return;
+      view.addFolder(picked[0].fsPath);
+      out.appendLine(`Added crash folder ${picked[0].fsPath}.`);
+    }),
+
+    // Attach a running runtime as a source (its data dir may be remote, e.g. a Pi).
+    vscode.commands.registerCommand('loom.faults.addRuntime', async () => {
+      const url = await vscode.window.showInputBox({
+        prompt: 'Loom runtime URL to read faults from',
+        value: serverUrl(),
+        placeHolder: 'http://host:8080',
+      });
+      if (!url) return;
+      view.addRuntime(url.replace(/\/+$/, ''));
+      out.appendLine(`Added runtime crash source ${url}.`);
+    }),
+
+    vscode.commands.registerCommand('loom.faults.removeSource', (node: unknown) => {
+      const n = node as { source?: { id?: string } } | undefined;
+      if (n?.source?.id) view.removeSource(n.source.id);
     }),
 
     vscode.commands.registerCommand('loom.faults.openFrame', async (arg: unknown) => {

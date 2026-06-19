@@ -1,55 +1,78 @@
 import * as vscode from 'vscode';
-import type { LoomClient } from '../api/client';
-import type { OpcuaClient } from '../api/opcuaClient';
+import * as path from 'path';
 import type { FaultSummary } from '../api/types';
-import { serverUrl } from '../util/paths';
+import { type FaultSource, DiskFaultSource, RestFaultSource } from '../api/faultSource';
+import { resolvePaths } from '../util/paths';
 
-type Node = StatusNode | FaultNode;
+type Node = SourceNode | FaultNode;
 
-class StatusNode {
-  readonly kind = 'status';
+class SourceNode {
+  readonly kind = 'source';
   constructor(
-    public readonly httpReachable: boolean,
-    public readonly count: number,
-    public readonly url: string,
+    public readonly source: FaultSource,
+    public readonly faults: FaultSummary[],
+    public readonly available: boolean,
   ) {}
 }
 export class FaultNode {
   readonly kind = 'fault';
-  constructor(public readonly info: FaultSummary) {}
+  constructor(public readonly source: FaultSource, public readonly info: FaultSummary) {}
 }
 
+interface SourceState { faults: FaultSummary[]; available: boolean }
+
 /**
- * FaultsProvider — the "Faults" tree: one row per crash/fault report served by
- * GET /api/faults (this run's exceptions plus persisted prior-run crashes).
- * Mirrors ModulesProvider: REST polling with a live-connection nudge to refetch
- * on (re)connect. Clicking a fault opens the crash-report webview.
+ * FaultsProvider — the "Faults" tree, grouped by source. Disk is the model: the
+ * local data dir's crash folder is always present (auto-detected, works with the
+ * runtime offline), and the user can add folders, open files, or attach a running
+ * runtime. Each source is a top-level group; its crash reports are the children.
  */
 export class FaultsProvider implements vscode.TreeDataProvider<Node>, vscode.Disposable {
   private readonly _onDidChange = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this._onDidChange.event;
 
-  private faults: FaultSummary[] = [];
-  private httpReachable = false;
+  /** Sources the user explicitly added (folders / runtimes). The local data dir
+   *  source is synthesized fresh each poll so it tracks loom.dataDir changes. */
+  private readonly userSources: FaultSource[] = [];
+  private readonly cache = new Map<string, SourceState>();
   private pollTimer: NodeJS.Timeout | null = null;
   private inflight = false;
-  private readonly disposables: vscode.Disposable[] = [];
 
-  constructor(
-    private readonly client: LoomClient,
-    private readonly opc: OpcuaClient,
-  ) {
+  constructor() {
     this.startPolling();
-    this.disposables.push(
-      this.opc.onConnectionChange((connected) => {
-        if (connected) void this.poll();
-        else this._onDidChange.fire(undefined);
-      }),
-    );
   }
 
-  refresh(): void {
+  refresh(): void { void this.poll(); }
+
+  /** The always-present local data dir crash folder, recomputed each poll. */
+  private defaultSource(): FaultSource {
+    const { dataDir } = resolvePaths();
+    return new DiskFaultSource(path.join(dataDir, 'crash'), 'Local data dir', false);
+  }
+
+  private sources(): FaultSource[] {
+    return [this.defaultSource(), ...this.userSources];
+  }
+
+  addFolder(dir: string): void {
+    const src = new DiskFaultSource(dir, path.basename(dir) || dir, true);
+    if (this.userSources.some((s) => s.id === src.id) || src.id === this.defaultSource().id) {
+      void this.poll();
+      return;
+    }
+    this.userSources.push(src);
     void this.poll();
+  }
+
+  addRuntime(url: string, label?: string): void {
+    const src = new RestFaultSource(url, label ?? `Runtime (${url})`);
+    if (!this.userSources.some((s) => s.id === src.id)) this.userSources.push(src);
+    void this.poll();
+  }
+
+  removeSource(id: string): void {
+    const i = this.userSources.findIndex((s) => s.id === id);
+    if (i >= 0) { this.userSources.splice(i, 1); this.cache.delete(id); void this.poll(); }
   }
 
   private startPolling(): void {
@@ -62,11 +85,17 @@ export class FaultsProvider implements vscode.TreeDataProvider<Node>, vscode.Dis
     if (this.inflight) return;
     this.inflight = true;
     try {
-      this.faults = await this.client.getFaults();
-      this.httpReachable = true;
-    } catch {
-      this.faults = [];
-      this.httpReachable = false;
+      const srcs = this.sources();
+      const seen = new Set<string>();
+      await Promise.all(srcs.map(async (s) => {
+        seen.add(s.id);
+        const [faults, available] = await Promise.all([
+          s.list().catch(() => [] as FaultSummary[]),
+          s.available().catch(() => false),
+        ]);
+        this.cache.set(s.id, { faults, available });
+      }));
+      for (const key of [...this.cache.keys()]) if (!seen.has(key)) this.cache.delete(key);
     } finally {
       this.inflight = false;
       this._onDidChange.fire(undefined);
@@ -74,19 +103,15 @@ export class FaultsProvider implements vscode.TreeDataProvider<Node>, vscode.Dis
   }
 
   getTreeItem(node: Node): vscode.TreeItem {
-    if (node.kind === 'status') {
-      const item = new vscode.TreeItem(
-        node.httpReachable
-          ? (node.count === 0 ? `No faults — ${node.url}` : `${node.count} fault${node.count === 1 ? '' : 's'} — ${node.url}`)
-          : `Disconnected — ${node.url}`,
-      );
-      item.iconPath = new vscode.ThemeIcon(
-        node.httpReachable ? (node.count === 0 ? 'pass-filled' : 'warning') : 'circle-slash',
-      );
-      item.contextValue = 'faultStatus';
-      item.tooltip = node.httpReachable
-        ? 'Faults captured by the Loom runtime (module exceptions + crash reports).'
-        : 'Cannot reach the Loom runtime. Check loom.serverUrl.';
+    if (node.kind === 'source') {
+      const s = node.source;
+      const item = new vscode.TreeItem(s.label, vscode.TreeItemCollapsibleState.Expanded);
+      item.description = node.available
+        ? `${node.faults.length} · ${s.detailText}`
+        : `unavailable · ${s.detailText}`;
+      item.tooltip = `${s.label}\n${s.detailText}\n${node.available ? `${node.faults.length} report(s)` : 'not reachable / missing'}`;
+      item.iconPath = new vscode.ThemeIcon(node.available ? s.icon : 'circle-slash');
+      item.contextValue = s.removable ? 'faultSourceRemovable' : 'faultSource';
       return item;
     }
 
@@ -105,25 +130,25 @@ export class FaultsProvider implements vscode.TreeDataProvider<Node>, vscode.Dis
     ].filter(Boolean).join('\n');
     item.contextValue = 'fault';
     item.iconPath = new vscode.ThemeIcon('error', new vscode.ThemeColor('list.errorForeground'));
-    item.command = {
-      command: 'loom.faults.openReport',
-      title: 'Open Crash Report',
-      arguments: [f.id],
-    };
+    item.command = { command: 'loom.faults.openReport', title: 'Open Crash Report', arguments: [node] };
     return item;
   }
 
   getChildren(node?: Node): Node[] {
     if (!node) {
-      const status = new StatusNode(this.httpReachable, this.faults.length, serverUrl());
-      return [status, ...this.faults.map((f) => new FaultNode(f))];
+      return this.sources().map((s) => {
+        const st = this.cache.get(s.id) ?? { faults: [], available: false };
+        return new SourceNode(s, st.faults, st.available);
+      });
+    }
+    if (node.kind === 'source') {
+      return node.faults.map((f) => new FaultNode(node.source, f));
     }
     return [];
   }
 
   dispose(): void {
     if (this.pollTimer) clearInterval(this.pollTimer);
-    for (const d of this.disposables) d.dispose();
     this._onDidChange.dispose();
   }
 }

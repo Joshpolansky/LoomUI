@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { LoomClient } from '../api/client';
+import type { FaultSource } from '../api/faultSource';
 
 type WebviewMessage =
   | { type: 'gotoFrame'; file: string; line: number }
@@ -18,12 +18,13 @@ type WebviewMessage =
 export class FaultPanel {
   private static readonly open = new Map<string, FaultPanel>();
 
-  static show(context: vscode.ExtensionContext, client: LoomClient, faultId: string): void {
-    const existing = this.open.get(faultId);
+  static show(context: vscode.ExtensionContext, source: FaultSource, faultId: string): void {
+    const key = `${source.id}::${faultId}`;
+    const existing = this.open.get(key);
     if (existing) { existing.panel.reveal(); return; }
-    const panel = new FaultPanel(context, client, faultId);
-    this.open.set(faultId, panel);
-    panel.panel.onDidDispose(() => this.open.delete(faultId));
+    const panel = new FaultPanel(context, source, faultId);
+    this.open.set(key, panel);
+    panel.panel.onDidDispose(() => this.open.delete(key));
   }
 
   readonly panel: vscode.WebviewPanel;
@@ -31,7 +32,7 @@ export class FaultPanel {
 
   private constructor(
     _context: vscode.ExtensionContext,
-    private readonly client: LoomClient,
+    private readonly source: FaultSource,
     private readonly faultId: string,
   ) {
     this.panel = vscode.window.createWebviewPanel(
@@ -53,8 +54,9 @@ export class FaultPanel {
 
   private async refresh(): Promise<void> {
     try {
-      const detail = await this.client.getFault(this.faultId);
-      this.send({ type: 'report', detail });
+      const detail = await this.source.detail(this.faultId);
+      if (detail) this.send({ type: 'report', detail });
+      else this.send({ type: 'error', message: `Report '${this.faultId}' not found in ${this.source.detailText}` });
     } catch (e) {
       this.send({ type: 'error', message: (e as Error).message });
     }
