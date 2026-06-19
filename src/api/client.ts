@@ -7,6 +7,8 @@ import type {
   ServiceCallResult,
   DataSection,
   IOMapping,
+  FaultSummary,
+  FaultDetail,
 } from './types';
 import type { OpcuaClient } from './opcuaClient';
 import { moduleNode, ptrToFieldPath } from './nodeId';
@@ -164,6 +166,10 @@ export class LoomClient {
       body: request,
     });
   }
+
+  // --- faults (crash diagnostics) ---
+  getFaults():          Promise<FaultSummary[]> { return this.json('/api/faults'); }
+  getFault(id: string): Promise<FaultDetail>    { return this.json(`/api/faults/${encodeURIComponent(id)}`); }
 
   // --- io mappings ---
   getMappings(): Promise<IOMapping[]> { return this.json('/api/io-mappings'); }

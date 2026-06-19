@@ -63,6 +63,11 @@
           "id": "loom.mappings",
           "name": "I/O Mappings",
           "icon": "media/loom.svg"
+        },
+        {
+          "id": "loom.faults",
+          "name": "Faults",
+          "icon": "media/loom.svg"
         }
       ]
     },
@@ -247,6 +252,20 @@
         "command": "loom.mappings.delete",
         "title": "Loom: Delete I/O Mapping",
         "icon": "$(trash)"
+      },
+      {
+        "command": "loom.faults.refresh",
+        "title": "Loom: Refresh Faults",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "loom.faults.openReport",
+        "title": "Loom: Open Crash Report",
+        "icon": "$(error)"
+      },
+      {
+        "command": "loom.faults.openFrame",
+        "title": "Loom: Open Crash Frame Source"
       }
     ],
     "menus": {
@@ -314,6 +333,11 @@
         {
           "command": "loom.mappings.refresh",
           "when": "view == loom.mappings",
+          "group": "navigation@9"
+        },
+        {
+          "command": "loom.faults.refresh",
+          "when": "view == loom.faults",
           "group": "navigation@9"
         }
       ],
@@ -399,6 +423,11 @@
           "command": "loom.mappings.delete",
           "when": "view == loom.mappings && viewItem =~ /^mapping/",
           "group": "1_state@2"
+        },
+        {
+          "command": "loom.faults.openReport",
+          "when": "view == loom.faults && viewItem == fault",
+          "group": "0_open@1"
         }
       ],
       "commandPalette": [
@@ -412,6 +441,10 @@
         },
         {
           "command": "loom.modules.setValue",
+          "when": "false"
+        },
+        {
+          "command": "loom.faults.openFrame",
           "when": "false"
         }
       ]
@@ -584,6 +617,11 @@
           "type": "number",
           "default": 100,
           "description": "OPC-UA subscription publishing interval for live data (runtime/summary/stats) pushed over the push channel."
+        },
+        "loom.symbolsDir": {
+          "type": "string",
+          "default": "",
+          "description": "Optional: path to an archived symbol set (PDB / .debug / .dSYM) for symbolizing crash reports from stripped or remote (e.g. Raspberry Pi) builds. Used when a fault report's frames lack file:line. Supports ${workspaceFolder}."
         }
       }
     }

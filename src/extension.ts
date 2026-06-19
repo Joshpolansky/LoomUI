@@ -5,6 +5,7 @@ import { ModulesProvider } from './views/modulesView';
 import { SchedulerProvider } from './views/schedulerView';
 import { BusProvider } from './views/busView';
 import { MappingsProvider } from './views/mappingsView';
+import { FaultsProvider } from './views/faultsView';
 import { RuntimeProcess } from './runtime/runtimeProcess';
 import { registerRuntimeCommands } from './commands/runtimeCommands';
 import { registerModuleCommands } from './commands/moduleCommands';
@@ -12,6 +13,7 @@ import { registerDebugCommands } from './commands/debugCommands';
 import { registerSchedulerCommands } from './commands/schedulerCommands';
 import { registerMappingCommands } from './commands/mappingCommands';
 import { registerProjectCommands } from './commands/projectCommands';
+import { registerFaultCommands } from './commands/faultCommands';
 import {
   LoomDebugAdapterFactory,
   LoomDebugConfigurationProvider,
@@ -31,9 +33,10 @@ export function activate(context: vscode.ExtensionContext): void {
   const schedulerProvider = new SchedulerProvider(client, opc);
   const busProvider       = new BusProvider(client);
   const mappingsProvider  = new MappingsProvider(client);
+  const faultsProvider    = new FaultsProvider(client, opc);
 
   context.subscriptions.push(
-    runtime, opc, modulesProvider, schedulerProvider, busProvider, mappingsProvider,
+    runtime, opc, modulesProvider, schedulerProvider, busProvider, mappingsProvider, faultsProvider,
   );
 
   // If the runtime answers REST but lacks the OPC-UA live-data facade, it's too
@@ -68,6 +71,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerTreeDataProvider('loom.modules',  modulesProvider),
     vscode.window.registerTreeDataProvider('loom.bus',      busProvider),
     vscode.window.registerTreeDataProvider('loom.mappings', mappingsProvider),
+    vscode.window.registerTreeDataProvider('loom.faults',   faultsProvider),
     // Scheduler view uses createTreeView so we can attach the
     // TreeDragAndDropController for reassigning modules between classes.
     vscode.window.createTreeView('loom.scheduler', {
@@ -83,6 +87,7 @@ export function activate(context: vscode.ExtensionContext): void {
   registerMappingCommands(context, client, mappingsProvider);
   registerProjectCommands(context);
   registerDebugCommands(context, runtime);
+  registerFaultCommands(context, client, faultsProvider);
 
   // --- DAP-based module inspector ---
   const inspectorFactory = new LoomDebugAdapterFactory(client, opc);
@@ -170,6 +175,7 @@ export function activate(context: vscode.ExtensionContext): void {
           schedulerProvider.refresh();
           busProvider.refresh();
           mappingsProvider.refresh();
+          faultsProvider.refresh();
           opc.reconnect();
         }, 800);
       } else {
@@ -186,6 +192,7 @@ export function activate(context: vscode.ExtensionContext): void {
         schedulerProvider.refresh();
         busProvider.refresh();
         mappingsProvider.refresh();
+        faultsProvider.refresh();
       }
       if (e.affectsConfiguration('loom.port') || e.affectsConfiguration('loom.runtimeProfile')) {
         updateStatus(runtime.running);

@@ -80,6 +80,50 @@ export interface IOMapping {
   error?: string;
 }
 
+// --- faults (crash diagnostics) ---
+// Mirrors the runtime's loom::diag fault report JSON (see fault_report.cpp).
+
+/** One row in GET /api/faults. */
+export interface FaultSummary {
+  id: string;
+  ts: number;            // system_clock ms (0 for raw signal-path text reports)
+  kind: string;          // 'exception' | 'signal' | 'raw'
+  module: string;        // '' → runtime code (no module on the faulting thread)
+  class: string;
+  phase: string;
+  reason: string;
+}
+
+export interface FaultFrame {
+  idx: number;
+  address: string;       // "0x...."
+  function: string;      // '' if unresolved
+  file: string;          // absolute source path ('' if unavailable)
+  line: number;          // 0 if unknown
+}
+
+export interface FaultSections {
+  config: unknown;
+  recipe: unknown;
+  runtime: unknown;
+  summary: unknown;
+}
+
+/** GET /api/faults/<id>. `raw` is set instead of the structured fields for
+ *  POSIX signal-path text reports that haven't been symbolized. */
+export interface FaultDetail {
+  id: string;
+  ts?: number;
+  kind: string;
+  signalOrCode?: number;
+  reason?: string;
+  build?: { sdkVersion: string; gitSha: string; buildType: string };
+  breadcrumb?: { module: string; class: string; phase: string; cycle: number };
+  frames?: FaultFrame[];
+  sections?: FaultSections;
+  raw?: string;
+}
+
 export const MODULE_STATES: Record<number, string> = {
   0: 'Unloaded',
   1: 'Loaded',
