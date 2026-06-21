@@ -31,7 +31,10 @@ export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Di
   private modules: ModuleInfo[] = [];
   private httpReachable = false;
   private pollTimer: NodeJS.Timeout | null = null;
+  private followupTimer: NodeJS.Timeout | null = null;
+  private liveTimer: NodeJS.Timeout | null = null;
   private inflight = false;
+  private pollQueued = false;
   private readonly disposables: vscode.Disposable[] = [];
   /** Live per-module stats monitors, keyed by module id. */
   private readonly statMonitors = new Map<string, vscode.Disposable>();
@@ -53,6 +56,11 @@ export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Di
 
   refresh(): void {
     void this.poll();
+    // A mutating command (reload/instantiate/remove/reassign) may complete just
+    // after this fires; a single short follow-up catches any state the runtime
+    // hadn't surfaced on the first read, so the user never waits for the timer.
+    if (this.followupTimer) clearTimeout(this.followupTimer);
+    this.followupTimer = setTimeout(() => { this.followupTimer = null; void this.poll(); }, 350);
   }
 
   private startPolling(): void {
@@ -62,7 +70,9 @@ export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Di
   }
 
   private async poll(): Promise<void> {
-    if (this.inflight) return;
+    // Never drop a requested refresh: if a poll is already running, queue one to
+    // run right after, so an action's refresh() is never silently swallowed.
+    if (this.inflight) { this.pollQueued = true; return; }
     this.inflight = true;
     try {
       const list = await this.client.getModules();
@@ -76,6 +86,18 @@ export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Di
       this.reconcileMonitors();
       this._onDidChange.fire(undefined);
     }
+    if (this.pollQueued) { this.pollQueued = false; void this.poll(); }
+  }
+
+  /** Coalesce high-rate live-stat updates into one tree refresh per window.
+   *  Firing onDidChangeTreeData per-notification (~tens/sec) starves VS Code's
+   *  tree refresh; batching to a calm cadence keeps it responsive. */
+  private scheduleLiveRefresh(): void {
+    if (this.liveTimer) return;
+    this.liveTimer = setTimeout(() => {
+      this.liveTimer = null;
+      this._onDidChange.fire(undefined);
+    }, 250);
   }
 
   /** Add/drop per-module stats subscriptions so they track the current list. */
@@ -91,7 +113,7 @@ export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Di
         const m = this.modules.find((x) => x.id === id);
         if (!m) return;
         m.stats = value as ModuleStats;
-        this._onDidChange.fire(undefined);
+        this.scheduleLiveRefresh();
       }));
     }
   }
@@ -188,6 +210,8 @@ export class ModulesProvider implements vscode.TreeDataProvider<Node>, vscode.Di
 
   dispose(): void {
     if (this.pollTimer) clearInterval(this.pollTimer);
+    if (this.followupTimer) clearTimeout(this.followupTimer);
+    if (this.liveTimer) clearTimeout(this.liveTimer);
     for (const sub of this.statMonitors.values()) sub.dispose();
     this.statMonitors.clear();
     for (const d of this.disposables) d.dispose();

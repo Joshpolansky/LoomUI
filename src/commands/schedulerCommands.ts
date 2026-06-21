@@ -190,6 +190,8 @@ export function registerSchedulerCommands(
       try {
         await client.reassignModuleClass(moduleId, pick.cls.name);
         provider.refresh();
+        // The Modules view shows each module's class — keep it in sync.
+        void vscode.commands.executeCommand('loom.modules.refresh');
       } catch (e) {
         vscode.window.showErrorMessage(`Reassign failed: ${(e as Error).message}`);
       }

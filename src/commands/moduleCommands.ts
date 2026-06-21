@@ -153,6 +153,8 @@ export function registerModuleCommands(
         await client.removeModule(id);
         vscode.window.showInformationMessage(`Removed ${id}.`);
         view.refresh();
+        // Removal drops the module from its scheduler class too.
+        void vscode.commands.executeCommand('loom.scheduler.refresh');
       } catch (e) {
         vscode.window.showErrorMessage(`Remove failed: ${(e as Error).message}`);
       }
@@ -213,6 +215,8 @@ export function registerModuleCommands(
         await client.instantiateModule(pick.so, id);
         vscode.window.showInformationMessage(`Instantiated ${id}.`);
         view.refresh();
+        // A new instance joins a scheduler class.
+        void vscode.commands.executeCommand('loom.scheduler.refresh');
       } catch (e) {
         vscode.window.showErrorMessage(`Instantiate failed: ${(e as Error).message}`);
       }

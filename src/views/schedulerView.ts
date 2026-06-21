@@ -4,6 +4,11 @@ import type { OpcuaClient } from '../api/opcuaClient';
 import { classNode } from '../api/nodeId';
 import type { ClassInfo, ClassLiveStats } from '../api/types';
 
+/** Live stats arrive per-node at the publishing rate (~10-20 Hz across classes).
+ *  Firing onDidChangeTreeData that fast starves VS Code's tree refresh — it
+ *  coalesces nothing and ends up never re-rendering. Batch to a calm rate. */
+const LIVE_COALESCE_MS = 250;
+
 export type Node = ClassNode | MemberNode;
 
 const DRAG_MIME = 'application/vnd.code.tree.loom.scheduler';
@@ -27,6 +32,8 @@ export class SchedulerProvider
   private classes: ClassInfo[] = [];
   private liveStats: Record<string, ClassLiveStats> = {};
   private pollTimer: NodeJS.Timeout | null = null;
+  private followupTimer: NodeJS.Timeout | null = null;
+  private liveTimer: NodeJS.Timeout | null = null;
   /** Live per-class stats monitors, keyed by class name. */
   private readonly statMonitors = new Map<string, vscode.Disposable>();
 
@@ -51,7 +58,21 @@ export class SchedulerProvider
     );
   }
 
-  refresh(): void { void this.poll(); }
+  refresh(): void {
+    void this.poll();
+    // Backstop: a class create/edit/reassign may land just after this fires.
+    if (this.followupTimer) clearTimeout(this.followupTimer);
+    this.followupTimer = setTimeout(() => { this.followupTimer = null; void this.poll(); }, 350);
+  }
+
+  /** Coalesce high-rate live-stat updates into one tree refresh per window. */
+  private scheduleLiveRefresh(): void {
+    if (this.liveTimer) return;
+    this.liveTimer = setTimeout(() => {
+      this.liveTimer = null;
+      this._onChange.fire(undefined);
+    }, LIVE_COALESCE_MS);
+  }
 
   classNames(): string[] {
     return this.classes.map((c) => c.name);
@@ -82,7 +103,7 @@ export class SchedulerProvider
       this.statMonitors.set(name, this.opc.monitor(classNode(name), (value, ok) => {
         if (!ok || value == null) return;
         this.liveStats[name] = value as ClassLiveStats;
-        this._onChange.fire(undefined);
+        this.scheduleLiveRefresh();
       }));
     }
   }
@@ -182,10 +203,14 @@ export class SchedulerProvider
       vscode.window.showErrorMessage(`Reassign failed: ${failures.join('; ')}`);
     }
     this.refresh();
+    // The Modules view shows each module's class — keep it in sync.
+    void vscode.commands.executeCommand('loom.modules.refresh');
   }
 
   dispose(): void {
     if (this.pollTimer) clearInterval(this.pollTimer);
+    if (this.followupTimer) clearTimeout(this.followupTimer);
+    if (this.liveTimer) clearTimeout(this.liveTimer);
     for (const sub of this.statMonitors.values()) sub.dispose();
     this.statMonitors.clear();
     for (const d of this.disposables) d.dispose();
