@@ -14,6 +14,7 @@ import { registerSchedulerCommands } from './commands/schedulerCommands';
 import { registerMappingCommands } from './commands/mappingCommands';
 import { registerProjectCommands } from './commands/projectCommands';
 import { registerFaultCommands } from './commands/faultCommands';
+import { WatchPanel } from './webview/watchPanel';
 import {
   LoomDebugAdapterFactory,
   LoomDebugConfigurationProvider,
@@ -88,6 +89,12 @@ export function activate(context: vscode.ExtensionContext): void {
   registerProjectCommands(context);
   registerDebugCommands(context, runtime);
   registerFaultCommands(context, faultsProvider);
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('loom.watch.open', () => {
+      WatchPanel.show(context, client, opc);
+    }),
+  );
 
   // --- DAP-based module inspector ---
   const inspectorFactory = new LoomDebugAdapterFactory(client, opc);
