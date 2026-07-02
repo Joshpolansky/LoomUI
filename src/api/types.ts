@@ -134,11 +134,14 @@ export const MODULE_STATES: Record<number, string> = {
 };
 
 /** One process resource sample from GET /api/system (history points carry only
- *  ts/rssBytes/cpuPercent — peak is monotonic and uptime derivable from ts). */
+ *  the chartable series — peak is monotonic and uptime derivable from ts).
+ *  heapUsedBytes = live allocations per the allocator's own bookkeeping;
+ *  absent/0 on runtimes without the reader (older runtimes, Windows). */
 export interface SystemSample {
   ts: number;
   rssBytes: number;
   cpuPercent: number;
+  heapUsedBytes?: number;
 }
 
 /** GET /api/system — current process memory/CPU + ~10min of 1s history. */
