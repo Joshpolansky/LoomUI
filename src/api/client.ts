@@ -9,6 +9,7 @@ import type {
   IOMapping,
   FaultSummary,
   FaultDetail,
+  SystemMetrics,
 } from './types';
 import type { OpcuaClient } from './opcuaClient';
 import { moduleNode, ptrToFieldPath } from './nodeId';
@@ -166,6 +167,9 @@ export class LoomClient {
       body: request,
     });
   }
+
+  // --- system (process memory/CPU metrics) ---
+  getSystem(): Promise<SystemMetrics> { return this.json('/api/system'); }
 
   // --- faults (crash diagnostics) ---
   getFaults():          Promise<FaultSummary[]> { return this.json('/api/faults'); }
