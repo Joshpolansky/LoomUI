@@ -14,6 +14,8 @@ import { registerSchedulerCommands } from './commands/schedulerCommands';
 import { registerMappingCommands } from './commands/mappingCommands';
 import { registerProjectCommands } from './commands/projectCommands';
 import { registerFaultCommands } from './commands/faultCommands';
+import { WatchPanel } from './webview/watchPanel';
+import { SystemPanel } from './webview/systemPanel';
 import {
   LoomDebugAdapterFactory,
   LoomDebugConfigurationProvider,
@@ -89,6 +91,15 @@ export function activate(context: vscode.ExtensionContext): void {
   registerDebugCommands(context, runtime);
   registerFaultCommands(context, faultsProvider);
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand('loom.watch.open', () => {
+      WatchPanel.show(context, client, opc);
+    }),
+    vscode.commands.registerCommand('loom.system.open', () => {
+      SystemPanel.show(client);
+    }),
+  );
+
   // --- DAP-based module inspector ---
   const inspectorFactory = new LoomDebugAdapterFactory(client, opc);
   context.subscriptions.push(
@@ -152,22 +163,58 @@ export function activate(context: vscode.ExtensionContext): void {
   status.command = 'loom.runtime.toggle';
   context.subscriptions.push(status);
 
-  function updateStatus(running: boolean) {
+  // Latest /api/system sample from WHATEVER runtime serverUrl points at --
+  // reachability-driven, so an externally-launched runtime gets a readout too,
+  // not just processes this extension spawned.
+  let lastSystem: { rssBytes: number; peakRssBytes: number; cpuPercent: number; uptimeSec: number } | undefined;
+
+  function renderStatus() {
     const profile = activeRuntimeProfile() === 'debug' ? 'Debug' : 'Release';
-    if (running) {
-      status.text = `$(circle-large-filled) Loom ${profile} :${cfgPort()}`;
-      status.tooltip = 'Loom runtime is running. Click to stop.';
+    const base = runtime.running
+      ? `$(circle-large-filled) Loom ${profile} :${cfgPort()}`
+      : `$(circle-large-outline) Loom ${profile}`;
+    if (lastSystem) {
+      const mb = (lastSystem.rssBytes / (1024 * 1024)).toFixed(1);
+      status.text = `${base} · ${mb} MB · ${lastSystem.cpuPercent.toFixed(1)}%`;
+      const tip = new vscode.MarkdownString(
+        `**Loom runtime** — ${serverUrl()}\n\n` +
+        `Memory: **${mb} MB** (peak ${(lastSystem.peakRssBytes / (1024 * 1024)).toFixed(1)} MB)\n\n` +
+        `CPU: **${lastSystem.cpuPercent.toFixed(1)}%** of machine · up ${fmtUptime(lastSystem.uptimeSec)}\n\n` +
+        `[Open System Metrics](command:loom.system.open)\n\n` +
+        (runtime.running ? 'Click to stop the runtime.' : 'Externally-launched runtime. Click to start a local one.'),
+      );
+      tip.isTrusted = { enabledCommands: ['loom.system.open'] };
+      status.tooltip = tip;
     } else {
-      status.text = `$(circle-large-outline) Loom ${profile}`;
-      status.tooltip = 'Loom runtime is stopped. Click to start.';
+      status.text = base;
+      status.tooltip = runtime.running
+        ? 'Loom runtime is running. Click to stop.'
+        : 'Loom runtime is stopped. Click to start.';
     }
     status.show();
   }
-  updateStatus(false);
+  renderStatus();
+
+  // Poll /api/system on the shared cadence; presence/absence of a response is
+  // also what flips the readout on and off.
+  async function pollSystem(): Promise<void> {
+    let next: typeof lastSystem;
+    try {
+      const s = await client.getSystem();
+      next = { rssBytes: s.rssBytes, peakRssBytes: s.peakRssBytes, cpuPercent: s.cpuPercent, uptimeSec: s.uptimeSec };
+    } catch { next = undefined; }
+    const changed = JSON.stringify(next) !== JSON.stringify(lastSystem);
+    lastSystem = next;
+    if (changed) renderStatus();
+  }
+  const sysIntervalMs = vscode.workspace.getConfiguration('loom').get<number>('pollIntervalMs', 5000);
+  void pollSystem();
+  const sysTimer = setInterval(() => void pollSystem(), sysIntervalMs);
+  context.subscriptions.push({ dispose: () => clearInterval(sysTimer) });
 
   context.subscriptions.push(
     runtime.onStateChange((running) => {
-      updateStatus(running);
+      renderStatus();
       // After a fresh start give the server a moment to bind, then refresh.
       if (running) {
         setTimeout(() => {
@@ -177,9 +224,12 @@ export function activate(context: vscode.ExtensionContext): void {
           mappingsProvider.refresh();
           faultsProvider.refresh();
           opc.reconnect();
+          void pollSystem();
         }, 800);
       } else {
         modulesProvider.refresh();
+        lastSystem = undefined;
+        renderStatus();
       }
     }),
   );
@@ -195,7 +245,7 @@ export function activate(context: vscode.ExtensionContext): void {
         faultsProvider.refresh();
       }
       if (e.affectsConfiguration('loom.port') || e.affectsConfiguration('loom.runtimeProfile')) {
-        updateStatus(runtime.running);
+        renderStatus();
       }
     }),
   );
@@ -206,4 +256,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {
   disposeOutputs();
+}
+
+function fmtUptime(s: number): string {
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${m}m`;
+  if (m) return `${m}m ${s % 60}s`;
+  return `${s}s`;
 }

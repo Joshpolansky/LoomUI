@@ -132,3 +132,18 @@ export const MODULE_STATES: Record<number, string> = {
   4: 'Stopping',
   5: 'Error',
 };
+
+/** One process resource sample from GET /api/system (history points carry only
+ *  ts/rssBytes/cpuPercent — peak is monotonic and uptime derivable from ts). */
+export interface SystemSample {
+  ts: number;
+  rssBytes: number;
+  cpuPercent: number;
+}
+
+/** GET /api/system — current process memory/CPU + ~10min of 1s history. */
+export interface SystemMetrics extends SystemSample {
+  peakRssBytes: number;
+  uptimeSec: number;
+  history: SystemSample[];
+}

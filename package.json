@@ -150,6 +150,16 @@
         "icon": "$(window)"
       },
       {
+        "command": "loom.watch.open",
+        "title": "Loom: Open Watch Window",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "loom.system.open",
+        "title": "Loom: Open System Metrics",
+        "icon": "$(pulse)"
+      },
+      {
         "command": "loom.modules.inspect",
         "title": "Loom: Watch Modules (Variables View)",
         "icon": "$(search)"
@@ -324,6 +334,16 @@
           "command": "loom.modules.inspect",
           "when": "view == loom.modules",
           "group": "navigation@5"
+        },
+        {
+          "command": "loom.watch.open",
+          "when": "view == loom.modules",
+          "group": "navigation@6"
+        },
+        {
+          "command": "loom.system.open",
+          "when": "view == loom.modules",
+          "group": "navigation@7"
         },
         {
           "command": "loom.modules.refresh",
