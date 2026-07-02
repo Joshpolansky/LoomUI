@@ -149,7 +149,12 @@ const SCRIPT = `
     const a = Math.abs(b);
     if (a >= 1024 * 1024 * 1024) return (b / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
     if (a >= 1024 * 1024) return (b / (1024 * 1024)).toFixed(1) + ' MB';
-    return (b / 1024).toFixed(0) + ' KB';
+    // Small deltas matter on the change chart's axis: keep a decimal for
+    // sub-10KB values and show raw bytes below 1KB instead of rounding
+    // everything to whole KB (512 B must not read as "1 KB").
+    if (a >= 10 * 1024) return (b / 1024).toFixed(0) + ' KB';
+    if (a >= 1024) return (b / 1024).toFixed(1) + ' KB';
+    return b.toFixed(0) + ' B';
   }
   function fmtSigned(b) { return (b > 0 ? '+' : '') + fmtBytes(b); }
   function fmtUptime(s) {
@@ -169,6 +174,7 @@ const SCRIPT = `
     if (!w || !h) return null;
     canvas.width = w * dpr; canvas.height = h * dpr;
     const ctx = canvas.getContext('2d');
+    if (!ctx) return null;  // context lost/unavailable: skip the frame, don't throw
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, w, h);
     return { ctx, w, h };
@@ -278,7 +284,10 @@ const SCRIPT = `
   }
 
   // Net change per fixed time bucket: v(last in bucket) - v(last of previous
-  // bucket), so bars sum to the total move across the window.
+  // bucket), so bars sum to the total move across the window. The trailing
+  // partial bucket is flushed too — otherwise the newest ~bucketMs of deltas
+  // never shows, and a young runtime's chart stays empty until the first
+  // boundary is crossed.
   function bucketize(history, keys, bucketMs) {
     if (history.length < 2) return [];
     const out = [];
@@ -296,6 +305,9 @@ const SCRIPT = `
       } else {
         lastInBucket = s;
       }
+    }
+    if (lastInBucket && lastInBucket !== prev) {
+      out.push({ t: lastInBucket.ts, deltas: keys.map((k) => (lastInBucket[k] || 0) - (prev[k] || 0)) });
     }
     return out;
   }
@@ -322,10 +334,13 @@ const SCRIPT = `
     document.getElementById('peak').textContent   = fmtBytes(last.peakRssBytes);
     document.getElementById('cpu').textContent    = last.cpuPercent.toFixed(1) + '%';
     document.getElementById('uptime').textContent = fmtUptime(last.uptimeSec);
-    document.getElementById('heap').textContent   = hasHeap ? fmtBytes(last.heapUsedBytes) : 'n/a';
-    document.getElementById('heapStat').title     = hasHeap
-      ? 'Live heap allocations (allocator bookkeeping). RSS above this is allocator page retention.'
-      : 'This runtime does not report allocator stats (older runtime or unsupported platform).';
+    // hasHeap can be true from a nonzero value earlier in the window while the
+    // CURRENT sample lacks the field (mixed-version restart) — hence the || 0.
+    // Hide the stat entirely when the runtime doesn't report heap at all.
+    document.getElementById('heap').textContent    = fmtBytes(last.heapUsedBytes || 0);
+    document.getElementById('heapStat').style.display = hasHeap ? '' : 'none';
+    document.getElementById('heapStat').title =
+      'Live heap allocations (allocator bookkeeping). RSS above this is allocator page retention.';
 
     const memSeries = [{ points: last.history.map(function (s) { return { t: s.ts, v: s.rssBytes }; }), color: blue }];
     const memKeys = [{ label: 'RSS', color: blue }];
